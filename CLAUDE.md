@@ -10,7 +10,7 @@ Process Capture Studio is an Electron-based desktop application that captures us
 
 ### Main Process (`src/main/`)
 - **main.js**: Application lifecycle, window management, IPC handlers, global shortcuts
-- **capture-service.js**: System-wide activity capture using iohook
+- **capture-service.js**: System-wide activity capture using uiohook-napi
 - **window-manager.js**: Window state and behavior management
 - **preload.js**: Bridge between main and renderer processes
 
@@ -55,15 +55,15 @@ npm run rebuild
 ## Key Technologies
 
 - **Electron 27**: Desktop framework
-- **iohook**: System-wide keyboard/mouse capture (optional dependency)
+- **uiohook-napi**: System-wide keyboard/mouse capture (requires rebuilding for Electron)
 - **active-win**: Get active window information
 - **electron-builder**: Cross-platform distribution
 
 ## Global Shortcuts
 
-- `Ctrl+Shift+S`: Start/stop capture
-- `Ctrl+Shift+M`: Mark important step
-- `Ctrl+E`: Quick export
+- `Ctrl+Shift+S` / `Cmd+Shift+S`: Start/stop capture
+- `Ctrl+Shift+M` / `Cmd+Shift+M`: Mark important step
+- `Ctrl+E` / `Cmd+E`: Quick export
 - `F9`: Toggle window visibility
 
 ## IPC Events

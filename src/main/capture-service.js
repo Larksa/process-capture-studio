@@ -16,6 +16,8 @@ class CaptureService extends EventEmitter {
         this.lastActivity = null;
         this.keyBuffer = [];
         this.debugMode = process.env.DEBUG_CAPTURE === 'true';
+        this.mainWindowBounds = null; // Track main window position
+        this.captureInternalClicks = false; // Filter internal clicks by default
         this.importantPatterns = {
             copy: /ctrl\+c|cmd\+c/i,
             paste: /ctrl\+v|cmd\+v/i,
@@ -150,7 +152,9 @@ class CaptureService extends EventEmitter {
             if (!this.isCapturing) return;
             
             const activity = await this.createKeystrokeActivity(event);
-            this.processActivity(activity);
+            if (activity) { // Only process if activity was created (not filtered)
+                this.processActivity(activity);
+            }
         });
 
         // Mouse events - try different event names
@@ -162,7 +166,9 @@ class CaptureService extends EventEmitter {
             }
             
             const activity = await this.createClickActivity(event);
-            this.processActivity(activity);
+            if (activity) { // Only process if activity was created (not filtered)
+                this.processActivity(activity);
+            }
         });
 
         // Also try mousedown
@@ -174,7 +180,9 @@ class CaptureService extends EventEmitter {
             }
             
             const activity = await this.createClickActivity(event);
-            this.processActivity(activity);
+            if (activity) { // Only process if activity was created (not filtered)
+                this.processActivity(activity);
+            }
         });
 
         // And mouseup  
@@ -229,6 +237,18 @@ class CaptureService extends EventEmitter {
         const isImportant = this.isImportantKeystroke(key);
         const context = await this.getContext();
         
+        // Filter out keystrokes in Process Capture Studio itself
+        if (!this.captureInternalClicks) {
+            // Check if typing in our own app
+            if (context.application && 
+                (context.application.includes('Electron') || 
+                 context.application.includes('Process Capture Studio') ||
+                 context.window?.includes('Process Capture Studio'))) {
+                this.safeLog('Ignoring keystroke in Process Capture Studio');
+                return null; // Don't create activity for internal keystrokes
+            }
+        }
+        
         // Build key buffer for combo detection
         this.keyBuffer.push(key);
         if (this.keyBuffer.length > 10) {
@@ -263,6 +283,28 @@ class CaptureService extends EventEmitter {
     async createClickActivity(event) {
         const context = await this.getContext();
         
+        // Filter out clicks on Process Capture Studio itself
+        if (!this.captureInternalClicks) {
+            // Check if clicking on our own app
+            if (context.application && 
+                (context.application.includes('Electron') || 
+                 context.application.includes('Process Capture Studio') ||
+                 context.window?.includes('Process Capture Studio'))) {
+                this.safeLog('Ignoring click on Process Capture Studio');
+                return null; // Don't create activity for internal clicks
+            }
+            
+            // Also check if click is within main window bounds
+            if (this.mainWindowBounds) {
+                const { x, y, width, height } = this.mainWindowBounds;
+                if (event.x >= x && event.x <= x + width &&
+                    event.y >= y && event.y <= y + height) {
+                    this.safeLog('Ignoring click within app window bounds');
+                    return null;
+                }
+            }
+        }
+        
         const activity = {
             type: 'click',
             button: event.button,
@@ -276,6 +318,14 @@ class CaptureService extends EventEmitter {
             window: context.window,
             description: `Clicked in ${context.application}`
         };
+        
+        // Try to get enhanced browser context if it's a browser
+        if (this.isBrowser(context.application)) {
+            activity.browserContext = await this.getBrowserContext(context);
+            if (activity.browserContext?.url) {
+                activity.description = `Clicked in ${context.application} - ${activity.browserContext.url}`;
+            }
+        }
         
         // console.log('Click activity created:', activity); // Commented to prevent EPIPE
         
@@ -303,6 +353,67 @@ class CaptureService extends EventEmitter {
                 timestamp: Date.now()
             };
         }
+    }
+
+    /**
+     * Check if application is a browser
+     */
+    isBrowser(appName) {
+        if (!appName) return false;
+        const browsers = ['Chrome', 'Firefox', 'Safari', 'Edge', 'Opera', 'Brave'];
+        return browsers.some(browser => appName.includes(browser));
+    }
+
+    /**
+     * Get enhanced browser context
+     */
+    async getBrowserContext(context) {
+        try {
+            // For now, return basic info from window title
+            // Later we can enhance with CDP or browser extensions
+            const title = context.window || '';
+            
+            // Try to extract URL from window title if present
+            // Many browsers show "Page Title - Domain" or similar
+            let url = null;
+            let pageTitle = title;
+            
+            // Common patterns in browser window titles
+            if (title.includes(' - ')) {
+                const parts = title.split(' - ');
+                pageTitle = parts[0];
+                // Last part often contains domain
+                const possibleDomain = parts[parts.length - 1];
+                if (possibleDomain.includes('.')) {
+                    url = possibleDomain;
+                }
+            }
+            
+            return {
+                url: url,
+                pageTitle: pageTitle,
+                fullTitle: title
+            };
+        } catch (error) {
+            this.safeLog('Error getting browser context:', error);
+            return null;
+        }
+    }
+
+    /**
+     * Update main window bounds for filtering
+     */
+    setMainWindowBounds(bounds) {
+        this.mainWindowBounds = bounds;
+        this.safeLog('Updated main window bounds:', bounds);
+    }
+
+    /**
+     * Set whether to capture internal clicks
+     */
+    setCaptureInternalClicks(enabled) {
+        this.captureInternalClicks = enabled;
+        this.safeLog('Capture internal clicks:', enabled);
     }
 
     /**

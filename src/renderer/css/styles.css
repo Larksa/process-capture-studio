@@ -240,6 +240,13 @@ body {
     margin-top: 4px;
 }
 
+.activity-entry .app-context {
+    font-size: 12px;
+    color: #88b7ff;
+    margin-top: 4px;
+    font-style: italic;
+}
+
 .panel-footer {
     padding: 16px;
     background: #2d2d2d;

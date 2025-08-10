@@ -89,6 +89,13 @@ function initializeServices() {
     // Start capture service
     captureService.initialize();
     
+    // Pass main window bounds to capture service
+    updateWindowBounds();
+    
+    // Update bounds when window moves or resizes
+    mainWindow.on('move', updateWindowBounds);
+    mainWindow.on('resize', updateWindowBounds);
+    
     // Forward capture events to renderer
     captureService.on('activity', (data) => {
         if (mainWindow && !mainWindow.isDestroyed()) {
@@ -104,6 +111,16 @@ function initializeServices() {
     
     // Create system tray
     createTray();
+}
+
+/**
+ * Update window bounds in capture service
+ */
+function updateWindowBounds() {
+    if (mainWindow && captureService) {
+        const bounds = mainWindow.getBounds();
+        captureService.setMainWindowBounds(bounds);
+    }
 }
 
 /**

@@ -373,13 +373,26 @@ class ActivityTracker {
         
         const timestamp = new Date(activity.timestamp).toLocaleTimeString();
         const icon = this.getActivityIcon(activity.type);
-        const description = this.getActivityDescription(activity);
+        let description = this.getActivityDescription(activity);
+        
+        // Add application context if available
+        let contextInfo = '';
+        if (activity.application && activity.application !== 'Unknown') {
+            contextInfo = `<div class="app-context">📍 ${activity.application}`;
+            if (activity.browserContext?.url) {
+                contextInfo += ` - ${activity.browserContext.url}`;
+            } else if (activity.window && activity.window !== 'Unknown') {
+                contextInfo += ` - ${activity.window}`;
+            }
+            contextInfo += '</div>';
+        }
         
         entry.innerHTML = `
             <div class="timestamp">${timestamp}</div>
             <div class="activity-type">
                 ${icon} ${description}
             </div>
+            ${contextInfo}
             ${activity.details ? `<div class="details">${activity.details}</div>` : ''}
         `;
         
@@ -423,7 +436,16 @@ class ActivityTracker {
     getActivityDescription(activity) {
         switch (activity.type) {
             case 'click':
-                return `Clicked ${activity.element?.text || activity.element?.tagName || 'element'}`;
+                // Enhanced description for clicks with browser context
+                if (activity.browserContext?.pageTitle) {
+                    return `Clicked in "${activity.browserContext.pageTitle}"`;
+                } else if (activity.element?.text) {
+                    return `Clicked "${activity.element.text}"`;
+                } else if (activity.element?.tagName) {
+                    return `Clicked ${activity.element.tagName} element`;
+                } else {
+                    return 'Clicked';
+                }
             
             case 'keystroke':
                 return `Pressed ${activity.key}`;

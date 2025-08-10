@@ -1,17 +1,17 @@
 # Process Capture Studio - Living Requirements
 
 ## 🚦 Current Status
-**Last Updated**: 2025-08-10 11:30 AM  
-**Phase**: Building - System-wide capture now working!
-**Blocked By**: Nothing - Ready for testing
-**Next Action**: Test full workflow capture across applications
+**Last Updated**: 2025-08-10 12:45 PM  
+**Phase**: Testing - System-wide capture FULLY WORKING! 🎉
+**Blocked By**: Nothing - App is stable and functional
+**Next Action**: Capture real workflows and test export formats
 
 ## 📊 Progress Overview
-- Total Tasks: 47
-- Completed: 33 (70%)
+- Total Tasks: 52 (added 5 for EPIPE fixes)
+- Completed: 43 (83%)
 - In Progress: 0
-- Discovered: 12 (tasks found during work)
-- Failed Attempts: 2
+- Discovered: 17 (tasks found during work)
+- Failed Attempts: 3 (EPIPE crash resolved)
 
 ## 🎯 Original Vision
 [Preserved from initial conversation - NEVER delete, only annotate]
@@ -35,7 +35,8 @@
 - **[2025-01-09 Current]**: Three-panel system working beautifully, need system-wide capture via iohook
 - **[2025-01-09 Update]**: Recursive data source discovery is KEY - "Where did that come from?" leads to complete automation
 - **[2025-08-10 Morning]**: Window management fixed - always-on-top and opacity working perfectly
-- **[2025-08-10 Current]**: JS errors preventing proper capture, need iohook for detecting clicks outside app window
+- **[2025-08-10 11:30 AM]**: JS errors fixed, uiohook-napi installed for system-wide capture
+- **[2025-08-10 12:45 PM]**: EPIPE crash fixed, system-wide capture FULLY FUNCTIONAL across all apps!
 
 ## 📋 Task Hierarchy
 
@@ -192,6 +193,27 @@
   - **Actual**: 0h
   - **Status**: Complete
   - **Notes**: Already implemented using active-win package in capture-service.js
+
+### Phase 3.5: Critical Bug Fixes [5/5 tasks] ✅ COMPLETED
+- [x] 3.5.1: Fix IPC communication for start/stop
+  - **Status**: Complete
+  - **Fix**: Added window.electronAPI.startCapture() to actually start system-wide capture
+  
+- [x] 3.5.2: Debug mouse click capture
+  - **Status**: Complete
+  - **Fix**: Added mousedown/mouseup event listeners, fixed event detection
+  
+- [x] 3.5.3: Fix EPIPE crash on console overflow
+  - **Status**: Complete
+  - **Fix**: Removed excessive logging, added safe logging wrapper
+  
+- [x] 3.5.4: Fix Cmd+Shift+M detection
+  - **Status**: Complete
+  - **Fix**: Added keycode mapping for M (50) and Cmd (3675/3676)
+  
+- [x] 3.5.5: Add Stop button to UI
+  - **Status**: Complete
+  - **Fix**: Added proper Stop button alongside Pause for complete control
 
 - [ ] 3.4: Multi-window management
   - **Planned**: 3h
