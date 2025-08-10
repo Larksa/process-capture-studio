@@ -1,10 +1,10 @@
 # Process Capture Studio - Living Requirements
 
 ## 🚦 Current Status
-**Last Updated**: 2025-08-10 12:45 PM  
-**Phase**: Testing - System-wide capture FULLY WORKING! 🎉
-**Blocked By**: Nothing - App is stable and functional
-**Next Action**: Capture real workflows and test export formats
+**Last Updated**: 2025-08-10 2:00 PM  
+**Phase**: Strategic Pivot - Moving to full RPA-level context capture
+**Blocked By**: Missing element selectors and application context
+**Next Action**: Integrate Playwright for browser selector capture
 
 ## 📊 Progress Overview
 - Total Tasks: 52 (added 5 for EPIPE fixes)
@@ -37,6 +37,9 @@
 - **[2025-08-10 Morning]**: Window management fixed - always-on-top and opacity working perfectly
 - **[2025-08-10 11:30 AM]**: JS errors fixed, uiohook-napi installed for system-wide capture
 - **[2025-08-10 12:45 PM]**: EPIPE crash fixed, system-wide capture FULLY FUNCTIONAL across all apps!
+- **[2025-08-10 2:00 PM]**: MAJOR REALIZATION - We're capturing clicks but not WHAT was clicked (no selectors, no context)
+- **[2025-08-10 2:30 PM]**: Strategic pivot to match RPA tools like UiPath but with reasoning layer
+- **[2025-08-10 3:00 PM]**: Decision to integrate Playwright, UI Automation, and AI for full context capture
 
 ## 📋 Task Hierarchy
 
@@ -250,7 +253,51 @@
   - **Status**: Not Started
   - **Notes**: Help users enable screen recording
 
-### Phase 4: Advanced Features [0/10 tasks] - Future
+### Phase 4: Context Capture Implementation [0/8 tasks] - CRITICAL PATH
+- [ ] 4.1: Integrate Playwright for browser selectors
+  - **Priority**: HIGHEST
+  - **Technology**: Playwright CDP integration
+  - **Delivers**: Full HTML element context
+  
+- [ ] 4.2: Add Excel/Office COM integration
+  - **Priority**: HIGH
+  - **Technology**: winax/edge-js for COM
+  - **Delivers**: Cell addresses, formulas, ranges
+  
+- [ ] 4.3: Implement UI Automation for desktop apps
+  - **Priority**: MEDIUM
+  - **Technology**: Windows UI Automation API
+  - **Delivers**: Native app control identification
+  
+- [ ] 4.4: Create element selector builder
+  - **Priority**: HIGH
+  - **Delivers**: Unique paths to any UI element
+  
+- [ ] 4.5: Add screenshot context capture
+  - **Priority**: MEDIUM
+  - **Delivers**: Visual proof of actions
+  
+- [ ] 4.6: Implement activity enrichment pipeline
+  - **Priority**: HIGH
+  - **Delivers**: Transform raw clicks to rich context
+  
+- [ ] 4.7: Build selector resilience system
+  - **Priority**: MEDIUM
+  - **Delivers**: Multiple fallback selectors
+  
+- [ ] 4.8: Add state verification system
+  - **Priority**: LOW
+  - **Delivers**: Confirm actions succeeded
+
+### Phase 5: AI Integration [0/6 tasks] - Next Sprint
+- [ ] 5.1: Integrate Claude API for intelligent questioning
+- [ ] 5.2: Build context-aware prompt system
+- [ ] 5.3: Implement pattern recognition
+- [ ] 5.4: Add business rule extraction
+- [ ] 5.5: Create decision tree builder
+- [ ] 5.6: Implement suggestion engine
+
+### Phase 6: Advanced Features [0/10 tasks] - Future
 - [ ] 4.1: Loop detection and recording
 - [ ] 4.2: Parallel process support
 - [ ] 4.3: Error recovery flows
@@ -312,6 +359,10 @@
 | 2025-08-10 | Opacity control 30-100% | See through to work underneath | Less intrusive capture |
 | 2025-08-10 | Auto-hide dialog on blur | Save state when clicking away | Smooth workflow capture |
 | 2025-08-10 | iohook over alternatives | Most mature solution | Proven system-wide capture |
+| 2025-08-10 | **Playwright for web capture** | **Industry standard, full selector support** | **Enables true web automation** |
+| 2025-08-10 | **COM for Office integration** | **Direct access to Excel object model** | **Cell-level precision** |
+| 2025-08-10 | **Composite architecture** | **Leverage existing RPA libraries** | **Faster to market** |
+| 2025-08-10 | **AI reasoning layer** | **Our unique differentiator** | **Captures WHY not just WHAT** |
 
 ## 🎨 Architecture Decisions
 

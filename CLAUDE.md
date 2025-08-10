@@ -4,7 +4,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Process Capture Studio is an Electron-based desktop application that captures user workflows and converts them into automation-ready code. It uses a three-panel system to track activities, capture decision logic, and build visual process maps.
+Process Capture Studio is an Electron-based RPA (Robotic Process Automation) platform that captures user workflows WITH FULL CONTEXT and converts them into automation-ready code. It combines UiPath-level technical capability with AI-powered reasoning capture to understand not just WHAT users do, but WHY they do it.
+
+### Strategic Vision
+- **Goal**: Build "UiPath + Business Analyst in One"
+- **Differentiator**: Captures business reasoning, not just technical actions
+- **Architecture**: Composite approach using best-in-class libraries
 
 ## Architecture
 
@@ -54,10 +59,18 @@ npm run rebuild
 
 ## Key Technologies
 
+### Current Stack
 - **Electron 27**: Desktop framework
-- **uiohook-napi**: System-wide keyboard/mouse capture (requires rebuilding for Electron)
+- **uiohook-napi**: System-wide keyboard/mouse capture (basic coordinates only)
 - **active-win**: Get active window information
 - **electron-builder**: Cross-platform distribution
+
+### Planned Integrations (PRIORITY)
+- **Playwright**: Browser automation and selector capture
+- **winax/edge-js**: Windows COM for Excel/Office integration  
+- **@nut-tree/nut-js**: Cross-platform desktop automation
+- **UI Automation API**: Windows native app control identification
+- **Anthropic Claude API**: AI-powered reasoning and questioning
 
 ## Global Shortcuts
 
@@ -134,21 +147,30 @@ Consider adding:
 
 ## Common Development Tasks
 
+### Adding Context Capture (CRITICAL PATH)
+1. **Browser Context**: Integrate Playwright for selector capture
+2. **Excel Context**: Use COM automation for cell-level tracking
+3. **Desktop Context**: Implement UI Automation API
+4. **Enrich Activities**: Transform raw clicks into contextual actions
+
 ### Adding New Export Format
 1. Extend `ProcessEngine.exportToCode()` in process-engine.js
 2. Add format option to export dialog
 3. Implement code generation logic
+4. Include selector-based automation
 
 ### Adding New Capture Type
 1. Extend CaptureService to detect new activity
-2. Add handler in main.js IPC
-3. Update ProcessEngine node types
-4. Add UI representation in activity-tracker.js
+2. **Add context extraction for the activity type**
+3. Add handler in main.js IPC
+4. Update ProcessEngine node types
+5. Add UI representation in activity-tracker.js
 
-### Modifying UI Layout
-1. Edit src/renderer/index.html for structure
-2. Update src/renderer/css/styles.css for styling
-3. Adjust panel behaviors in app.js
+### Implementing AI Layer
+1. Integrate Claude API client
+2. Add context-aware questioning logic
+3. Implement pattern recognition
+4. Build business rule extraction
 
 ## Build Configuration
 
@@ -157,3 +179,40 @@ Configured in package.json `build` section:
 - Compression: maximum
 - Icons in `assets/` directory
 - Platform-specific configurations for Mac, Windows, Linux
+
+## Critical Missing Features (As of 2025-08-10)
+
+### What We Have
+- ✅ System-wide click/keystroke capture
+- ✅ Application name detection
+- ✅ Three-panel UI system
+- ✅ Basic process mapping
+
+### What We Need (Priority Order)
+1. **Element Selectors**: Full context of WHAT was clicked
+2. **Browser Integration**: URLs, DOM elements, form fields
+3. **Excel Integration**: Cell addresses, values, formulas
+4. **File Paths**: Complete file system context
+5. **AI Questioning**: Smart, context-aware prompts
+
+## Architecture Evolution
+
+### Current: Basic Capture
+```
+Mouse/Keyboard → uiohook → Coordinates → Activity Log
+```
+
+### Target: Full Context Capture
+```
+Mouse/Keyboard → uiohook → Coordinates
+                              ↓
+                    Context Enrichment Layer
+                    ├── Playwright (Browser)
+                    ├── COM (Office)
+                    ├── UI Automation (Desktop)
+                    └── AI Analysis (Reasoning)
+                              ↓
+                    Rich Contextual Activity
+                              ↓
+                    Automation-Ready Export
+```
