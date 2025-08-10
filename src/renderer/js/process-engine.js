@@ -3,10 +3,23 @@
  * Captures EVERYTHING needed for automation
  */
 
+// Fallback UUID generator if crypto.randomUUID is not available
+function generateUUID() {
+    if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+        return crypto.randomUUID();
+    }
+    // Fallback UUID v4 generator
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+        const r = Math.random() * 16 | 0;
+        const v = c === 'x' ? r : (r & 0x3 | 0x8);
+        return v.toString(16);
+    });
+}
+
 class ProcessEngine {
     constructor() {
         this.process = {
-            id: crypto.randomUUID(),
+            id: generateUUID(),
             name: 'Untitled Process',
             version: '1.0.0',
             createdAt: new Date().toISOString(),
@@ -35,7 +48,7 @@ class ProcessEngine {
      */
     clearProcess() {
         this.process = {
-            id: crypto.randomUUID(),
+            id: generateUUID(),
             name: 'Untitled Process',
             version: '1.0.0',
             createdAt: new Date().toISOString(),
@@ -68,7 +81,7 @@ class ProcessEngine {
      */
     createNode(data) {
         const node = {
-            id: data.id || crypto.randomUUID(),
+            id: data.id || generateUUID(),
             type: data.type || 'action', // action, decision, loop, parallel, merge
             step: this.process.nodes.size + 1,
             
@@ -128,7 +141,7 @@ class ProcessEngine {
             
             // Branches (for decision nodes)
             branches: data.branches ? data.branches.map(b => ({
-                id: b.id || crypto.randomUUID(),
+                id: b.id || generateUUID(),
                 condition: b.condition,
                 label: b.label,
                 probability: b.probability,
@@ -206,7 +219,7 @@ class ProcessEngine {
      */
     addEdge(fromId, toId, type = 'normal', condition = null) {
         const edge = {
-            id: crypto.randomUUID(),
+            id: generateUUID(),
             from: fromId,
             to: toId,
             type: type, // 'normal', 'branch', 'loop', 'error'

@@ -3,7 +3,7 @@
  * Handles application lifecycle and window management
  */
 
-const { app, BrowserWindow, ipcMain, globalShortcut, Menu, Tray, screen } = require('electron');
+const { app, BrowserWindow, ipcMain, globalShortcut, Menu, Tray, screen, dialog } = require('electron');
 const path = require('path');
 const CaptureService = require('./capture-service');
 const WindowManager = require('./window-manager');
@@ -28,6 +28,20 @@ if (!gotTheLock) {
         }
     });
 }
+
+// Global error handlers to prevent app crashes
+process.on('uncaughtException', (error) => {
+    console.error('Uncaught Exception:', error);
+    // Show error dialog but don't crash
+    if (mainWindow) {
+        dialog.showErrorBox('Unexpected Error', 
+            `An error occurred: ${error.message}\n\nThe app will continue running.`);
+    }
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+});
 
 /**
  * Create the main application window

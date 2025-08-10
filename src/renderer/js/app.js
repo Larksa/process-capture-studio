@@ -3,6 +3,19 @@
  * Coordinates the three-panel system
  */
 
+// Fallback UUID generator if crypto.randomUUID is not available
+function generateUUID() {
+    if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+        return generateUUID();
+    }
+    // Fallback UUID v4 generator
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+        const r = Math.random() * 16 | 0;
+        const v = c === 'x' ? r : (r & 0x3 | 0x8);
+        return v.toString(16);
+    });
+}
+
 class ProcessCaptureApp {
     constructor() {
         this.engine = new ProcessEngine();
@@ -423,40 +436,67 @@ class ProcessCaptureApp {
         const confirmed = confirm('Are you sure you want to clear all captured data? This cannot be undone.');
         
         if (confirmed) {
-            // Stop capture if running
-            if (this.isRecording) {
-                this.stopCapture();
+            console.log('User confirmed clear action');
+            
+            try {
+                // Stop capture if running
+                if (this.isRecording) {
+                    this.stopCapture();
+                }
+                
+                // Clear activity tracker
+                if (this.tracker) {
+                    this.tracker.clearBuffer();
+                }
+                const activityFeed = document.getElementById('activity-feed');
+                if (activityFeed) {
+                    activityFeed.innerHTML = '';
+                }
+                
+                // Clear process engine
+                if (this.engine) {
+                    this.engine.clearProcess();
+                }
+                
+                // Clear canvas - MOST IMPORTANT
+                if (this.canvas) {
+                    console.log('Calling canvas.clear()');
+                    this.canvas.clear();
+                } else {
+                    console.error('Canvas object not found!');
+                }
+                
+                // Clear chat messages (keep welcome message)
+                const chatMessages = document.getElementById('chat-messages');
+                if (chatMessages) {
+                    chatMessages.innerHTML = `
+                        <div class="message ai">
+                            <div class="message-content">
+                                👋 Welcome to Process Capture Studio! I'll help you document your workflow. 
+                                Start by clicking "Start Capture" and then perform your normal process. 
+                                Press Ctrl+Shift+M to mark important steps.
+                            </div>
+                        </div>
+                    `;
+                }
+                
+                // Update status
+                this.addChatMessage('ai', '🗑️ All data cleared. Ready to start a fresh capture!');
+                
+                // Update canvas status
+                const nodeCount = document.getElementById('node-count');
+                const branchCount = document.getElementById('branch-count');
+                const completionStatus = document.getElementById('completion-status');
+                
+                if (nodeCount) nodeCount.textContent = '0 steps';
+                if (branchCount) branchCount.textContent = '0 branches';
+                if (completionStatus) completionStatus.textContent = '0% mapped';
+                
+                console.log('Clear operation completed successfully');
+            } catch (error) {
+                console.error('Error during clear operation:', error);
+                alert('An error occurred while clearing data. Please refresh the page.');
             }
-            
-            // Clear activity tracker
-            this.tracker.clearBuffer();
-            document.getElementById('activity-feed').innerHTML = '';
-            
-            // Clear process engine
-            this.engine.clearProcess();
-            
-            // Clear canvas
-            this.canvas.clear();
-            
-            // Clear chat messages (keep welcome message)
-            const chatMessages = document.getElementById('chat-messages');
-            chatMessages.innerHTML = `
-                <div class="message ai">
-                    <div class="message-content">
-                        👋 Welcome to Process Capture Studio! I'll help you document your workflow. 
-                        Start by clicking "Start Capture" and then perform your normal process. 
-                        Press Ctrl+Shift+M to mark important steps.
-                    </div>
-                </div>
-            `;
-            
-            // Update status
-            this.addChatMessage('ai', '🗑️ All data cleared. Ready to start a fresh capture!');
-            
-            // Update canvas status
-            document.getElementById('node-count').textContent = '0 steps';
-            document.getElementById('branch-count').textContent = '0 branches';
-            document.getElementById('completion-status').textContent = '0% mapped';
         }
     }
 
@@ -482,23 +522,26 @@ class ProcessCaptureApp {
      * Mark current moment as important
      */
     markCurrentAsImportant() {
-        // Tell main process we're marking a step (to prevent recording the action)
+        // Tell main process we're marking a step FIRST (to prevent recording the action)
         if (window.electronAPI) {
             window.electronAPI.markImportant({});
         }
         
-        const activity = this.tracker.activityBuffer[this.tracker.activityBuffer.length - 1];
-        
-        if (activity) {
-            this.showStepDialog(activity);
-        } else {
-            // Create manual marker
-            this.showStepDialog({
-                type: 'manual',
-                timestamp: Date.now(),
-                context: this.tracker.getCurrentContext()
-            });
-        }
+        // Add a delay to ensure the flag is set before dialog shows
+        setTimeout(() => {
+            const activity = this.tracker.activityBuffer[this.tracker.activityBuffer.length - 1];
+            
+            if (activity) {
+                this.showStepDialog(activity);
+            } else {
+                // Create manual marker
+                this.showStepDialog({
+                    type: 'manual',
+                    timestamp: Date.now(),
+                    context: this.tracker.getCurrentContext()
+                });
+            }
+        }, 100); // 100ms delay to ensure flag is set
     }
 
     /**
@@ -560,7 +603,7 @@ class ProcessCaptureApp {
         
         // Build node data
         const nodeData = {
-            id: crypto.randomUUID(),
+            id: generateUUID(),
             type: actionType === 'decision' ? 'decision' : 'action',
             actionType: actionType,
             description: this.generateDescription(actionType, this.currentActivity),
@@ -647,7 +690,7 @@ class ProcessCaptureApp {
         branchInputs.forEach(input => {
             if (input.value.trim()) {
                 branches.push({
-                    id: crypto.randomUUID(),
+                    id: generateUUID(),
                     condition: input.value.trim(),
                     label: input.value.trim(),
                     recorded: false

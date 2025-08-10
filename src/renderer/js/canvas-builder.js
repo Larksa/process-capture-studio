@@ -3,6 +3,19 @@
  * Real-time node creation, branching, and navigation
  */
 
+// Fallback UUID generator if crypto.randomUUID is not available
+function generateUUID() {
+    if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+        return generateUUID();
+    }
+    // Fallback UUID v4 generator
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+        const r = Math.random() * 16 | 0;
+        const v = c === 'x' ? r : (r & 0x3 | 0x8);
+        return v.toString(16);
+    });
+}
+
 class CanvasBuilder {
     constructor() {
         this.container = document.getElementById('canvas-container');
@@ -30,44 +43,65 @@ class CanvasBuilder {
      * Clear all nodes and connections from the canvas
      */
     clear() {
-        // Clear all nodes
-        this.nodes.clear();
-        this.connections.clear();
-        this.currentNodeId = null;
-        this.selectedNodeId = null;
+        console.log('Canvas clear called');
         
-        // Clear DOM elements
-        this.nodesContainer.innerHTML = '';
-        
-        // Clear SVG connections but preserve defs (arrow markers)
-        const defs = this.svg.querySelector('defs');
-        while (this.svg.firstChild) {
-            if (this.svg.firstChild !== defs) {
-                this.svg.removeChild(this.svg.firstChild);
-            } else {
-                // Skip defs, move to next
-                if (this.svg.children[1]) {
-                    this.svg.removeChild(this.svg.children[1]);
-                } else {
-                    break;
-                }
+        try {
+            // Clear all nodes
+            this.nodes.clear();
+            this.connections.clear();
+            this.currentNodeId = null;
+            this.selectedNodeId = null;
+            
+            // Clear DOM elements
+            if (this.nodesContainer) {
+                this.nodesContainer.innerHTML = '';
             }
+            
+            // Clear SVG completely and recreate arrow marker
+            if (this.svg) {
+                this.svg.innerHTML = '';
+                
+                // Re-add arrow marker definition
+                const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
+                const marker = document.createElementNS('http://www.w3.org/2000/svg', 'marker');
+                
+                marker.setAttribute('id', 'arrowhead');
+                marker.setAttribute('markerWidth', '10');
+                marker.setAttribute('markerHeight', '10');
+                marker.setAttribute('refX', '9');
+                marker.setAttribute('refY', '3');
+                marker.setAttribute('orient', 'auto');
+                
+                const polygon = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+                polygon.setAttribute('points', '0 0, 10 3, 0 6');
+                polygon.setAttribute('fill', '#4CAF50');
+                
+                marker.appendChild(polygon);
+                defs.appendChild(marker);
+                this.svg.appendChild(defs);
+            }
+            
+            // Reset zoom and pan
+            this.zoom = 1;
+            this.pan = { x: 0, y: 0 };
+            this.updateTransform();
+            
+            // Update minimap if it exists
+            if (this.updateMinimap) {
+                this.updateMinimap();
+            }
+            
+            // Force visual refresh with better method
+            if (this.nodesContainer) {
+                this.nodesContainer.style.visibility = 'hidden';
+                this.nodesContainer.offsetHeight; // Force reflow
+                this.nodesContainer.style.visibility = 'visible';
+            }
+            
+            console.log('Canvas cleared successfully');
+        } catch (error) {
+            console.error('Error clearing canvas:', error);
         }
-        
-        // Reset zoom and pan
-        this.zoom = 1;
-        this.pan = { x: 0, y: 0 };
-        this.updateTransform();
-        
-        // Update minimap if it exists
-        if (this.updateMinimap) {
-            this.updateMinimap();
-        }
-        
-        // Force visual refresh
-        this.nodesContainer.style.display = 'none';
-        this.nodesContainer.offsetHeight; // Force reflow
-        this.nodesContainer.style.display = '';
     }
 
     /**
@@ -466,7 +500,7 @@ class CanvasBuilder {
         
         // Create new branch node
         const branchNode = {
-            id: branchData.nextNodeId || crypto.randomUUID(),
+            id: branchData.nextNodeId || generateUUID(),
             type: 'action',
             title: `${branchData.label} branch`,
             branchOf: nodeId,

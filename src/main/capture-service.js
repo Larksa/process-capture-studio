@@ -309,7 +309,7 @@ class CaptureService extends EventEmitter {
     async createClickActivity(event) {
         // Don't record if we're in the middle of marking a step
         if (this.isMarkingStep) {
-            this.safeLog('Ignoring click during mark step action');
+            console.log('Ignoring click during mark step action - flag is true');
             return null;
         }
         
@@ -641,6 +641,7 @@ class CaptureService extends EventEmitter {
     markImportant(data) {
         // Set flag to prevent recording the marking action itself
         this.isMarkingStep = true;
+        console.log('Setting isMarkingStep flag to true');
         
         const activity = {
             type: 'marked_important',
@@ -652,10 +653,11 @@ class CaptureService extends EventEmitter {
         
         this.emit('activity', activity);
         
-        // Reset flag after a short delay to ensure the click is ignored
+        // Reset flag after a longer delay to ensure all related clicks are ignored
         setTimeout(() => {
             this.isMarkingStep = false;
-        }, 500);
+            console.log('Resetting isMarkingStep flag to false');
+        }, 1000); // Increased to 1 second
     }
 
     /**
