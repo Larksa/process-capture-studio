@@ -1,10 +1,10 @@
 # Process Capture Studio - Living Requirements
 
 ## 🚦 Current Status
-**Last Updated**: 2025-08-09 10:50 AM
-**Phase**: Building - Core app running
-**Blocked By**: Nothing
-**Next Action**: Test capture functionality and add export features
+**Last Updated**: 2025-08-10 11:00 AM  
+**Phase**: Building - Window management fixed, need system-wide capture
+**Blocked By**: JavaScript errors and lack of system-wide capture
+**Next Action**: Fix JS errors then install and integrate iohook for global capture
 
 ## 📊 Progress Overview
 - Total Tasks: 47
@@ -34,6 +34,8 @@
 - **[2025-01-09 Afternoon]**: Realized Docker can't capture system keystrokes - pivoting to portable Electron app
 - **[2025-01-09 Current]**: Three-panel system working beautifully, need system-wide capture via iohook
 - **[2025-01-09 Update]**: Recursive data source discovery is KEY - "Where did that come from?" leads to complete automation
+- **[2025-08-10 Morning]**: Window management fixed - always-on-top and opacity working perfectly
+- **[2025-08-10 Current]**: JS errors preventing proper capture, need iohook for detecting clicks outside app window
 
 ## 📋 Task Hierarchy
 
@@ -142,16 +144,68 @@
   - **Status**: Not Started
   - **Notes**: Future enhancement
 
+### Phase 2.5: IMMEDIATE FIXES [0/5 tasks] - URGENT
+- [ ] 2.5.1: Fix getRelevantAttributes missing method
+  - **Status**: Not Started
+  - **Error**: activity-tracker.js:246 - method called but not defined
+  - **Fix**: Add method to extract element attributes
+  
+- [ ] 2.5.2: Fix saveDialogState null reference
+  - **Status**: Not Started  
+  - **Error**: app.js:151 - 'action-reason' element doesn't exist
+  - **Fix**: Change to 'step-logic' (correct textarea ID)
+  
+- [ ] 2.5.3: Add null safety checks
+  - **Status**: Not Started
+  - **Fix**: Check elements exist before accessing .value
+  
+- [ ] 2.5.4: Test JavaScript fixes
+  - **Status**: Not Started
+  - **Verify**: No console errors, capture works in app window
+  
+- [ ] 2.5.5: Commit JavaScript fixes
+  - **Status**: Not Started
+
 ### Phase 3: System-Wide Capture [0/12 tasks] - Current Focus
 - [ ] 3.1: Electron main process
   - **Planned**: 3h
-  - **Status**: In Progress
-  - **Notes**: Creating standalone app structure
+  - **Status**: COMPLETED ✅
+  - **Notes**: Electron app running with window management
 
-- [ ] 3.2: iohook integration
+- [ ] 3.2: iohook integration - DETAILED PLAN
   - **Planned**: 4h
   - **Status**: Not Started
-  - **Notes**: System-wide keystroke capture
+  - **Detailed Steps**:
+    ```
+    Step 1: Install iohook package
+    - npm install iohook --save
+    - Expected: May fail due to prebuilt binary mismatch
+    
+    Step 2: Rebuild for Electron 27
+    - npm install --save-dev electron-rebuild
+    - npx electron-rebuild -f -w iohook
+    - Alternative: npm run rebuild (already in package.json)
+    
+    Step 3: Handle compilation requirements
+    - macOS: Xcode Command Line Tools required
+    - Windows: Visual Studio Build Tools required
+    - Linux: build-essential package required
+    
+    Step 4: Integrate into capture-service.js
+    - Import iohook successfully
+    - Register global mouse/keyboard listeners
+    - Forward events to renderer process
+    
+    Step 5: Handle permissions
+    - macOS: Request accessibility permissions
+    - Windows: May need admin for some features
+    - Linux: User must be in 'input' group
+    
+    Step 6: Test system-wide capture
+    - Click in other applications
+    - Verify events captured correctly
+    - Check application context detection
+    ```
 
 - [ ] 3.3: Active window detection
   - **Planned**: 2h
@@ -251,6 +305,10 @@
 | 2025-01-09 | Portable builds | No installation needed | Easy team distribution |
 | 2025-01-09 | LocalStorage first, DB later | Start simple | Working prototype in hours |
 | 2025-01-09 | Repository pattern everywhere | Future-proof | Easy to swap storage |
+| 2025-08-10 | Always-on-top window option | Keep studio visible while working | Can capture across applications |
+| 2025-08-10 | Opacity control 30-100% | See through to work underneath | Less intrusive capture |
+| 2025-08-10 | Auto-hide dialog on blur | Save state when clicking away | Smooth workflow capture |
+| 2025-08-10 | iohook over alternatives | Most mature solution | Proven system-wide capture |
 
 ## 🎨 Architecture Decisions
 
