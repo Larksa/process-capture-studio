@@ -39,9 +39,19 @@ class CanvasBuilder {
         // Clear DOM elements
         this.nodesContainer.innerHTML = '';
         
-        // Clear SVG connections
+        // Clear SVG connections but preserve defs (arrow markers)
+        const defs = this.svg.querySelector('defs');
         while (this.svg.firstChild) {
-            this.svg.removeChild(this.svg.firstChild);
+            if (this.svg.firstChild !== defs) {
+                this.svg.removeChild(this.svg.firstChild);
+            } else {
+                // Skip defs, move to next
+                if (this.svg.children[1]) {
+                    this.svg.removeChild(this.svg.children[1]);
+                } else {
+                    break;
+                }
+            }
         }
         
         // Reset zoom and pan
@@ -53,6 +63,11 @@ class CanvasBuilder {
         if (this.updateMinimap) {
             this.updateMinimap();
         }
+        
+        // Force visual refresh
+        this.nodesContainer.style.display = 'none';
+        this.nodesContainer.offsetHeight; // Force reflow
+        this.nodesContainer.style.display = '';
     }
 
     /**

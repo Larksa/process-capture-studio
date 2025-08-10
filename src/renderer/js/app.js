@@ -482,6 +482,11 @@ class ProcessCaptureApp {
      * Mark current moment as important
      */
     markCurrentAsImportant() {
+        // Tell main process we're marking a step (to prevent recording the action)
+        if (window.electronAPI) {
+            window.electronAPI.markImportant({});
+        }
+        
         const activity = this.tracker.activityBuffer[this.tracker.activityBuffer.length - 1];
         
         if (activity) {

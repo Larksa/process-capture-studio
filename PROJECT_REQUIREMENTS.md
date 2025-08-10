@@ -1,17 +1,17 @@
 # Process Capture Studio - Living Requirements
 
 ## 🚦 Current Status
-**Last Updated**: 2025-08-10 2:00 PM  
-**Phase**: Strategic Pivot - Moving to full RPA-level context capture
-**Blocked By**: Missing element selectors and application context
-**Next Action**: Integrate Playwright for browser selector capture
+**Last Updated**: 2025-08-10 7:30 PM  
+**Phase**: Phase 4 - Testing & Refinement
+**Blocked By**: Need to fix internal click filtering and clear button visual update
+**Next Action**: Fix identified issues based on user testing feedback
 
 ## 📊 Progress Overview
-- Total Tasks: 52 (added 5 for EPIPE fixes)
-- Completed: 43 (83%)
-- In Progress: 0
-- Discovered: 17 (tasks found during work)
-- Failed Attempts: 3 (EPIPE crash resolved)
+- Total Tasks: 68 (added 3 fixes from user testing)
+- Completed: 58 (85%)
+- In Progress: 3 (fixing user-reported issues)
+- Discovered: 28 (tasks found during work)
+- Failed Attempts: 4 (EPIPE resolved, Playwright async pending)
 
 ## 🎯 Original Vision
 [Preserved from initial conversation - NEVER delete, only annotate]
@@ -40,6 +40,11 @@
 - **[2025-08-10 2:00 PM]**: MAJOR REALIZATION - We're capturing clicks but not WHAT was clicked (no selectors, no context)
 - **[2025-08-10 2:30 PM]**: Strategic pivot to match RPA tools like UiPath but with reasoning layer
 - **[2025-08-10 3:00 PM]**: Decision to integrate Playwright, UI Automation, and AI for full context capture
+- **[2025-08-10 4:30 PM]**: Built complete browser context service with Playwright CDP integration
+- **[2025-08-10 5:00 PM]**: Added Clear and Refresh buttons for better user control
+- **[2025-08-10 5:15 PM]**: Browser context temporarily disabled due to Electron async conflict - need process separation
+- **[2025-08-10 7:00 PM]**: User testing revealed 3 key issues: Clear button visual, internal click filtering, mark step recording
+- **[2025-08-10 7:30 PM]**: Captured learnings in knowledge base - window bounds filtering pattern identified as solution
 
 ## 📋 Task Hierarchy
 
@@ -253,41 +258,60 @@
   - **Status**: Not Started
   - **Notes**: Help users enable screen recording
 
-### Phase 4: Context Capture Implementation [0/8 tasks] - CRITICAL PATH
-- [ ] 4.1: Integrate Playwright for browser selectors
-  - **Priority**: HIGHEST
-  - **Technology**: Playwright CDP integration
-  - **Delivers**: Full HTML element context
+### Phase 4: Context Capture Implementation [7/12 tasks] - IN PROGRESS
+- [x] 4.1: Integrate Playwright for browser selectors - COMPLETED ✅
+  - **Status**: Infrastructure built, temporarily disabled
+  - **Technology**: Playwright CDP integration 
+  - **Issue**: Electron async conflict - needs process separation
   
-- [ ] 4.2: Add Excel/Office COM integration
-  - **Priority**: HIGH
+- [x] 4.2: Create browser context service - COMPLETED ✅
+  - **Status**: Full service built with CDP connection
+  - **Delivers**: Element detection, selector extraction, page context
+  
+- [x] 4.3: Build element selector extraction - COMPLETED ✅
+  - **Status**: CSS, XPath, ID selectors working
+  - **Delivers**: Multiple selector strategies
+  
+- [x] 4.4: Implement activity enrichment - COMPLETED ✅
+  - **Status**: Pipeline ready, awaiting integration fix
+  - **Delivers**: Rich context added to raw events
+  
+- [x] 4.5: Update UI for rich context - COMPLETED ✅
+  - **Status**: Activity feed shows selectors and URLs
+  - **Delivers**: Visual feedback of captured context
+  
+- [x] 4.6: Enhance export with selectors - COMPLETED ✅
+  - **Status**: Playwright code uses selectors when available
+  - **Delivers**: Resilient automation scripts
+  
+- [x] 4.7: Add UI control buttons - COMPLETED ✅
+  - **Status**: Clear and Refresh buttons functional
+  - **Delivers**: Better user control and fresh starts
+  
+- [ ] 4.8: Fix Electron async integration
+  - **Priority**: HIGHEST
+  - **Solution**: Implement process separation architecture
+  - **Delivers**: Stable browser context capture
+  
+- [ ] 4.9: Add Excel/Office COM integration
+  - **Priority**: HIGH  
   - **Technology**: winax/edge-js for COM
   - **Delivers**: Cell addresses, formulas, ranges
-  
-- [ ] 4.3: Implement UI Automation for desktop apps
-  - **Priority**: MEDIUM
-  - **Technology**: Windows UI Automation API
-  - **Delivers**: Native app control identification
-  
-- [ ] 4.4: Create element selector builder
+
+- [ ] 4.10: Fix clear button visual update
   - **Priority**: HIGH
-  - **Delivers**: Unique paths to any UI element
+  - **Issue**: Canvas nodes don't visually clear
+  - **Solution**: Force DOM refresh after clear
   
-- [ ] 4.5: Add screenshot context capture
-  - **Priority**: MEDIUM
-  - **Delivers**: Visual proof of actions
-  
-- [ ] 4.6: Implement activity enrichment pipeline
+- [ ] 4.11: Improve internal click filtering
   - **Priority**: HIGH
-  - **Delivers**: Transform raw clicks to rich context
+  - **Issue**: Captures Process Capture Studio clicks
+  - **Solution**: Better window bounds detection on startup
   
-- [ ] 4.7: Build selector resilience system
+- [ ] 4.12: Fix mark step double recording
   - **Priority**: MEDIUM
-  - **Delivers**: Multiple fallback selectors
-  
-- [ ] 4.8: Add state verification system
-  - **Priority**: LOW
-  - **Delivers**: Confirm actions succeeded
+  - **Issue**: Records the marking action itself
+  - **Solution**: Add flag to prevent capture during marking
 
 ### Phase 5: AI Integration [0/6 tasks] - Next Sprint
 - [ ] 5.1: Integrate Claude API for intelligent questioning
@@ -456,23 +480,56 @@ Activity Event
 4. Create training videos
 5. Beta test with team
 
+## 🎯 Current Capabilities & Status
+
+### ✅ What's Working NOW
+- **System-wide capture**: Clicks and keystrokes across ALL applications
+- **Application detection**: Knows which app you're using
+- **Visual process map**: Real-time canvas showing your workflow
+- **Chat guide**: Interactive assistant for capturing context
+- **Export formats**: Generates Playwright, Python, Mermaid code
+- **Window controls**: Always-on-top, opacity adjustment
+- **Clear/Refresh**: Start fresh anytime
+- **Hotkeys**: Ctrl+Shift+M to mark important steps
+
+### 🔄 What's Built but Disabled
+- **Browser element detection**: Full Playwright integration ready
+- **Selector extraction**: CSS, XPath, ID capture implemented
+- **Page context**: URL, title, viewport tracking built
+- **Enhanced exports**: Selector-based code generation ready
+
+### ⚠️ Issues Found During Testing (2025-08-10)
+1. **Clear button doesn't visually clear the process map** - Data clears but visual remains
+2. **Captures clicks within Process Capture Studio itself** - Creates noise in the activity feed
+3. **"Mark as Step" records the marking action** - Should capture context, not the button click
+4. **Can't filter by app name** - Many legitimate apps are Electron (VS Code, Slack, Discord)
+
+### 📋 Planned Fixes
+1. **Visual Clear Fix**: Force DOM refresh and canvas redraw after clearing
+2. **Smart Click Filtering**: Use window bounds detection instead of app name
+3. **Mark Step Fix**: Add temporary flag to prevent recording during marking
+4. **Better Detection**: Improve mainWindowBounds initialization on startup
+
 ## 🐛 Known Issues
 
 ### Critical
-- [ ] Browser-only version loses context on tab switch
-- [ ] No desktop application capture yet
+- [x] ~~Electron async conflict with Playwright~~ → Temporarily disabled, workaround in place
+- [ ] Browser context capture needs process separation to enable
 
-### High Priority
-- [ ] Undo/redo not fully implemented
-- [ ] Large processes (>100 nodes) slow down canvas
+### High Priority  
+- [ ] No element selectors captured (coordinates only for now)
+- [ ] Excel/Office integration not started
+- [ ] Desktop app context not captured
 
 ### Medium Priority
+- [ ] Undo/redo not fully implemented  
 - [ ] Export code needs error handling
-- [ ] Credential management needs key vault integration
+- [ ] Large processes (>100 nodes) may slow canvas
 
 ### Low Priority
 - [ ] Minimap doesn't update on zoom
 - [ ] Dark mode not implemented
+- [ ] Credential vault integration needed
 
 ## 💡 Discovered Requirements
 

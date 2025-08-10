@@ -20,6 +20,7 @@ class CaptureService extends EventEmitter {
         this.debugMode = process.env.DEBUG_CAPTURE === 'true';
         this.mainWindowBounds = null; // Track main window position
         this.captureInternalClicks = false; // Filter internal clicks by default
+        this.isMarkingStep = false; // Flag to prevent recording during mark action
         // this.browserContext = new BrowserContextService(); // Browser context capture - DISABLED for stability
         this.importantPatterns = {
             copy: /ctrl\+c|cmd\+c/i,
@@ -254,17 +255,21 @@ class CaptureService extends EventEmitter {
      * Create keystroke activity object
      */
     async createKeystrokeActivity(event) {
+        // Don't record if we're in the middle of marking a step
+        if (this.isMarkingStep) {
+            this.safeLog('Ignoring keystroke during mark step action');
+            return null;
+        }
+        
         const key = this.getKeyName(event);
         const isImportant = this.isImportantKeystroke(key);
         const context = await this.getContext();
         
         // Filter out keystrokes in Process Capture Studio itself
         if (!this.captureInternalClicks) {
-            // Check if typing in our own app
-            if (context.application && 
-                (context.application.includes('Electron') || 
-                 context.application.includes('Process Capture Studio') ||
-                 context.window?.includes('Process Capture Studio'))) {
+            // Only filter if window title explicitly mentions our app
+            // Don't filter by "Electron" since that matches VS Code, Slack, etc.
+            if (context.window?.includes('Process Capture Studio')) {
                 this.safeLog('Ignoring keystroke in Process Capture Studio');
                 return null; // Don't create activity for internal keystrokes
             }
@@ -302,20 +307,17 @@ class CaptureService extends EventEmitter {
      * Create click activity object
      */
     async createClickActivity(event) {
+        // Don't record if we're in the middle of marking a step
+        if (this.isMarkingStep) {
+            this.safeLog('Ignoring click during mark step action');
+            return null;
+        }
+        
         const context = await this.getContext();
         
         // Filter out clicks on Process Capture Studio itself
         if (!this.captureInternalClicks) {
-            // Check if clicking on our own app
-            if (context.application && 
-                (context.application.includes('Electron') || 
-                 context.application.includes('Process Capture Studio') ||
-                 context.window?.includes('Process Capture Studio'))) {
-                this.safeLog('Ignoring click on Process Capture Studio');
-                return null; // Don't create activity for internal clicks
-            }
-            
-            // Also check if click is within main window bounds
+            // Primary check: Use window bounds if available
             if (this.mainWindowBounds) {
                 const { x, y, width, height } = this.mainWindowBounds;
                 if (event.x >= x && event.x <= x + width &&
@@ -323,6 +325,13 @@ class CaptureService extends EventEmitter {
                     this.safeLog('Ignoring click within app window bounds');
                     return null;
                 }
+            }
+            
+            // Secondary check: Only filter by app name if it's explicitly our app
+            // Don't filter by "Electron" since that matches VS Code, Slack, etc.
+            if (context.window?.includes('Process Capture Studio')) {
+                this.safeLog('Ignoring click on Process Capture Studio window');
+                return null; // Don't create activity for internal clicks
             }
         }
         
@@ -630,6 +639,9 @@ class CaptureService extends EventEmitter {
      * Mark current activity as important
      */
     markImportant(data) {
+        // Set flag to prevent recording the marking action itself
+        this.isMarkingStep = true;
+        
         const activity = {
             type: 'marked_important',
             timestamp: Date.now(),
@@ -639,6 +651,11 @@ class CaptureService extends EventEmitter {
         };
         
         this.emit('activity', activity);
+        
+        // Reset flag after a short delay to ensure the click is ignored
+        setTimeout(() => {
+            this.isMarkingStep = false;
+        }, 500);
     }
 
     /**
