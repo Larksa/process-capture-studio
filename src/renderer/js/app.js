@@ -38,6 +38,9 @@ class ProcessCaptureApp {
         // Setup keyboard shortcuts
         this.setupKeyboardShortcuts();
         
+        // Listen for system-wide capture events from main process
+        this.setupElectronListeners();
+        
         console.log('Process Capture Studio initialized');
     }
 
@@ -55,6 +58,10 @@ class ProcessCaptureApp {
         
         document.getElementById('pause-capture').addEventListener('click', () => {
             this.pauseCapture();
+        });
+        
+        document.getElementById('stop-capture').addEventListener('click', () => {
+            this.stopCapture();
         });
         
         // Mark important button
@@ -226,6 +233,48 @@ class ProcessCaptureApp {
     }
 
     /**
+     * Setup Electron IPC listeners
+     */
+    setupElectronListeners() {
+        if (!window.electronAPI) {
+            console.warn('Electron API not available');
+            return;
+        }
+
+        // Listen for system-wide capture events
+        window.electronAPI.onCaptureActivity((activity) => {
+            console.log('Received system-wide activity:', activity);
+            
+            // Add to activity tracker
+            if (this.tracker) {
+                this.tracker.addActivity(activity);
+            }
+            
+            // Handle special activities
+            if (activity.type === 'app_switch') {
+                this.addChatMessage('ai', `Switched to ${activity.application || 'unknown app'}`);
+            }
+        });
+
+        // Listen for global shortcuts
+        window.electronAPI.onShortcut('mark-important', () => {
+            this.markCurrentAsImportant();
+        });
+
+        window.electronAPI.onShortcut('toggle-capture', () => {
+            if (this.isRecording) {
+                this.pauseCapture();
+            } else {
+                this.startCapture();
+            }
+        });
+
+        window.electronAPI.onShortcut('export', () => {
+            this.showExportDialog();
+        });
+    }
+
+    /**
      * Setup keyboard shortcuts
      */
     setupKeyboardShortcuts() {
@@ -273,9 +322,16 @@ class ProcessCaptureApp {
         this.isRecording = true;
         this.tracker.startCapture();
         
+        // CRITICAL: Tell main process to start system-wide capture
+        if (window.electronAPI) {
+            window.electronAPI.startCapture();
+            console.log('Started system-wide capture');
+        }
+        
         // Update UI
         document.getElementById('start-capture').disabled = true;
         document.getElementById('pause-capture').disabled = false;
+        document.getElementById('stop-capture').disabled = false;
         
         // Update global recording status
         const globalStatus = document.getElementById('global-recording-status');
@@ -301,6 +357,7 @@ class ProcessCaptureApp {
         // Update UI
         document.getElementById('start-capture').disabled = false;
         document.getElementById('pause-capture').disabled = true;
+        document.getElementById('stop-capture').disabled = false;
         
         // Update global recording status
         const globalStatus = document.getElementById('global-recording-status');
@@ -314,6 +371,38 @@ class ProcessCaptureApp {
         
         // Add chat message
         this.addChatMessage('ai', "Recording paused. You can review the captured steps or continue recording.");
+    }
+
+    /**
+     * Stop capture completely
+     */
+    stopCapture() {
+        this.isRecording = false;
+        this.tracker.stopCapture();
+        
+        // Update UI
+        document.getElementById('start-capture').disabled = false;
+        document.getElementById('pause-capture').disabled = true;
+        document.getElementById('stop-capture').disabled = true;
+        
+        // Update global recording status
+        const globalStatus = document.getElementById('global-recording-status');
+        globalStatus.classList.remove('recording');
+        globalStatus.querySelector('span:last-child').textContent = 'Stopped';
+        
+        // Update capture status
+        const captureStatus = document.getElementById('capture-status');
+        captureStatus.querySelector('.status-text').textContent = 'Ready';
+        captureStatus.querySelector('.status-dot').style.background = '#4caf50';
+        
+        // Add chat message with summary
+        const nodeCount = this.engine.process.nodes.size;
+        this.addChatMessage('ai', `Recording stopped. Captured ${nodeCount} steps. You can now export your process or start a new recording.`);
+        
+        // Notify main process to stop system-wide capture
+        if (window.electronAPI) {
+            window.electronAPI.stopCapture();
+        }
     }
 
     /**

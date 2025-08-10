@@ -15,6 +15,7 @@ class CaptureService extends EventEmitter {
         this.activityBuffer = [];
         this.lastActivity = null;
         this.keyBuffer = [];
+        this.debugMode = process.env.DEBUG_CAPTURE === 'true';
         this.importantPatterns = {
             copy: /ctrl\+c|cmd\+c/i,
             paste: /ctrl\+v|cmd\+v/i,
@@ -22,8 +23,30 @@ class CaptureService extends EventEmitter {
             search: /ctrl\+f|cmd\+f/i,
             selectAll: /ctrl\+a|cmd\+a/i,
             undo: /ctrl\+z|cmd\+z/i,
-            switchApp: /alt\+tab|cmd\+tab/i
+            switchApp: /alt\+tab|cmd\+tab/i,
+            markImportant: /ctrl\+shift\+m|cmd\+shift\+m/i
         };
+    }
+
+    /**
+     * Safe logging that won't crash with EPIPE
+     */
+    safeLog(...args) {
+        try {
+            if (this.debugMode) {
+                console.log(...args);
+            }
+        } catch (error) {
+            // Ignore EPIPE and other console errors
+            if (error.code !== 'EPIPE') {
+                // Only log non-EPIPE errors
+                try {
+                    console.error('Logging error:', error.message);
+                } catch (e) {
+                    // Even error logging failed, just ignore
+                }
+            }
+        }
     }
 
     /**
@@ -31,6 +54,11 @@ class CaptureService extends EventEmitter {
      */
     async initialize() {
         try {
+            // Check platform-specific permissions
+            if (process.platform === 'darwin') {
+                await this.checkMacOSPermissions();
+            }
+            
             // Try to load uiohook-napi (modern replacement for iohook)
             // Compatible with Electron 27 and modern Node.js versions
             try {
@@ -49,25 +77,110 @@ class CaptureService extends EventEmitter {
     }
 
     /**
+     * Check macOS accessibility permissions
+     */
+    async checkMacOSPermissions() {
+        try {
+            const { systemPreferences } = require('electron');
+            
+            // Check if we have accessibility permissions
+            const accessibilityEnabled = systemPreferences.isTrustedAccessibilityClient(false);
+            
+            if (!accessibilityEnabled) {
+                console.warn('⚠️ Accessibility permissions not granted!');
+                console.warn('Please grant accessibility permissions to this app:');
+                console.warn('1. Open System Settings > Privacy & Security > Accessibility');
+                console.warn('2. Add this app to the list and enable it');
+                console.warn('3. Restart the app after granting permissions');
+                
+                // Optionally prompt the user
+                const { dialog } = require('electron');
+                const result = await dialog.showMessageBox({
+                    type: 'warning',
+                    title: 'Accessibility Permissions Required',
+                    message: 'Process Capture Studio needs accessibility permissions to capture system-wide keyboard and mouse events.',
+                    detail: 'Please grant accessibility permissions in System Settings > Privacy & Security > Accessibility, then restart the app.',
+                    buttons: ['Open System Settings', 'Continue Without'],
+                    defaultId: 0
+                });
+                
+                if (result.response === 0) {
+                    // Open accessibility settings
+                    systemPreferences.isTrustedAccessibilityClient(true);
+                }
+            } else {
+                console.log('✅ Accessibility permissions granted');
+            }
+        } catch (error) {
+            console.error('Error checking permissions:', error);
+        }
+    }
+
+    /**
      * Setup iohook event listeners
      */
     setupIoHook() {
-        if (!this.ioHook) return;
+        if (!this.ioHook) {
+            console.error('ioHook not available in setupIoHook');
+            return;
+        }
+
+        console.log('Setting up uiohook event listeners...');
 
         // Keyboard events
         this.ioHook.on('keydown', async (event) => {
+            // console.log('Global keydown detected:', event); // Commented to prevent EPIPE
+            
+            // Check for Cmd+Shift+M (mark important) even when not capturing
+            if (event.metaKey && event.shiftKey && event.keycode === 50) {
+                console.log('Cmd+Shift+M detected - marking as important!');
+                // Always emit this special event
+                const context = await this.getContext();
+                this.emit('activity', {
+                    type: 'mark_important',
+                    timestamp: Date.now(),
+                    context: context,
+                    application: context.application,
+                    window: context.window,
+                    description: `Mark important step in ${context.application}`
+                });
+                return;
+            }
+            
             if (!this.isCapturing) return;
             
             const activity = await this.createKeystrokeActivity(event);
             this.processActivity(activity);
         });
 
-        // Mouse events
+        // Mouse events - try different event names
         this.ioHook.on('mouseclick', async (event) => {
-            if (!this.isCapturing) return;
+            // console.log('Global mouse click detected:', event); // Commented to prevent EPIPE
+            if (!this.isCapturing) {
+                // console.log('Not capturing - ignoring mouse click');
+                return;
+            }
             
             const activity = await this.createClickActivity(event);
             this.processActivity(activity);
+        });
+
+        // Also try mousedown
+        this.ioHook.on('mousedown', async (event) => {
+            // console.log('Global mouse down detected:', event); // Commented to prevent EPIPE
+            if (!this.isCapturing) {
+                // console.log('Not capturing - ignoring mouse down');
+                return;
+            }
+            
+            const activity = await this.createClickActivity(event);
+            this.processActivity(activity);
+        });
+
+        // And mouseup  
+        this.ioHook.on('mouseup', async (event) => {
+            // console.log('Global mouse up detected:', event); // Commented to prevent EPIPE
+            // Just log for debugging
         });
 
         // Mouse wheel events (for scroll tracking)
@@ -88,7 +201,15 @@ class CaptureService extends EventEmitter {
         });
 
         // Register and start
-        this.ioHook.start(false); // false = don't block input
+        try {
+            console.log('Starting uiohook...');
+            this.ioHook.start(false); // false = don't block input
+            console.log('uiohook started successfully!');
+        } catch (error) {
+            console.error('Failed to start uiohook:', error);
+            console.error('Make sure accessibility permissions are granted');
+            this.useFallbackCapture();
+        }
     }
 
     /**
@@ -106,6 +227,7 @@ class CaptureService extends EventEmitter {
     async createKeystrokeActivity(event) {
         const key = this.getKeyName(event);
         const isImportant = this.isImportantKeystroke(key);
+        const context = await this.getContext();
         
         // Build key buffer for combo detection
         this.keyBuffer.push(key);
@@ -119,13 +241,18 @@ class CaptureService extends EventEmitter {
             keycode: event.keycode,
             isImportant: isImportant,
             timestamp: Date.now(),
-            context: await this.getContext()
+            context: context,
+            application: context.application,
+            window: context.window,
+            description: `Pressed ${key} in ${context.application}`
         };
         
         // Detect patterns
         if (isImportant) {
             activity.pattern = this.detectPattern(key);
         }
+        
+        // console.log('Keystroke activity created:', activity); // Commented to prevent EPIPE
         
         return activity;
     }
@@ -136,7 +263,7 @@ class CaptureService extends EventEmitter {
     async createClickActivity(event) {
         const context = await this.getContext();
         
-        return {
+        const activity = {
             type: 'click',
             button: event.button,
             position: {
@@ -146,8 +273,13 @@ class CaptureService extends EventEmitter {
             timestamp: Date.now(),
             context: context,
             application: context.application,
-            window: context.window
+            window: context.window,
+            description: `Clicked in ${context.application}`
         };
+        
+        // console.log('Click activity created:', activity); // Commented to prevent EPIPE
+        
+        return activity;
     }
 
     /**
@@ -282,6 +414,10 @@ class CaptureService extends EventEmitter {
             56: 'Alt',
             42: 'Shift',
             91: 'Cmd',
+            3675: 'Cmd',  // macOS Command key
+            3676: 'Cmd',  // macOS Command key (right)
+            50: 'M',      // M key
+            5: 'E',       // E key
             13: 'Enter',
             27: 'Escape',
             9: 'Tab',
