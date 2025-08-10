@@ -66,12 +66,26 @@
 - **Fix**: Terminal needs separate permission in dev
 - **Time wasted**: 30 minutes
 
+### **Technology**: localStorage Keys
+- **Issue**: Save and clear operations using different keys
+- **Fix**: Use consistent key names or constants
+- **Time wasted**: 2 hours debugging why data persisted after clear
+
+### **Technology**: Method Name Mismatches
+- **Issue**: Calling methods that don't exist (clearBuffer vs clearLog)
+- **Fix**: Verify actual method names in class implementation
+- **Time wasted**: 30 minutes
+
 ## 🔑 Key Takeaways
 
 1. **Console logging can crash your app** in high-frequency scenarios
 2. **macOS permissions are complex** - Terminal and app need separate permissions
 3. **IPC communication must be explicit** - renderer won't trigger main automatically
 4. **Always check native module compatibility** with Electron version
+5. **Strategic console logging with emojis** dramatically speeds up debugging
+6. **Use constants for storage keys** to prevent save/load mismatches
+7. **Verify method names exist** before calling them across modules
+8. **Manual save is better than auto-save** for user control and data integrity
 
 ## 📚 Resources for Future
 

@@ -6,7 +6,7 @@
 // Fallback UUID generator if crypto.randomUUID is not available
 function generateUUID() {
     if (typeof crypto !== 'undefined' && crypto.randomUUID) {
-        return generateUUID();
+        return crypto.randomUUID();  // FIXED: Was calling itself!
     }
     // Fallback UUID v4 generator
     return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
@@ -52,13 +52,15 @@ class CanvasBuilder {
             this.currentNodeId = null;
             this.selectedNodeId = null;
             
-            // Clear DOM elements
-            if (this.nodesContainer) {
+            // Clear DOM elements with null checks
+            if (this.nodesContainer && this.nodesContainer.innerHTML !== '') {
+                console.log('Clearing nodes container');
                 this.nodesContainer.innerHTML = '';
             }
             
             // Clear SVG completely and recreate arrow marker
             if (this.svg) {
+                console.log('Clearing SVG connections');
                 this.svg.innerHTML = '';
                 
                 // Re-add arrow marker definition
@@ -91,16 +93,103 @@ class CanvasBuilder {
                 this.updateMinimap();
             }
             
-            // Force visual refresh with better method
+            // Force visual refresh with multiple methods
             if (this.nodesContainer) {
+                // Method 1: Visibility toggle
                 this.nodesContainer.style.visibility = 'hidden';
                 this.nodesContainer.offsetHeight; // Force reflow
                 this.nodesContainer.style.visibility = 'visible';
+                
+                // Method 2: Display toggle
+                this.nodesContainer.style.display = 'none';
+                this.nodesContainer.offsetHeight; // Force reflow
+                this.nodesContainer.style.display = 'block';
+                
+                // Method 3: Remove and re-add to DOM
+                const parent = this.nodesContainer.parentNode;
+                if (parent) {
+                    parent.removeChild(this.nodesContainer);
+                    parent.appendChild(this.nodesContainer);
+                }
             }
+            
+            // Force SVG refresh
+            if (this.svg) {
+                this.svg.style.display = 'none';
+                this.svg.offsetHeight; // Force reflow
+                this.svg.style.display = 'block';
+            }
+            
+            // Update stats immediately
+            this.updateStats();
             
             console.log('Canvas cleared successfully');
         } catch (error) {
             console.error('Error clearing canvas:', error);
+            // Try fallback clear method
+            this.fallbackClear();
+        }
+    }
+
+    /**
+     * Fallback clear method for when primary clear fails
+     */
+    fallbackClear() {
+        console.log('Using fallback clear method');
+        
+        try {
+            // Force reload the entire canvas container
+            const canvasContainer = document.getElementById('canvas-container');
+            if (canvasContainer) {
+                const originalHTML = canvasContainer.innerHTML;
+                canvasContainer.innerHTML = '';
+                
+                // Recreate the basic structure
+                canvasContainer.innerHTML = `
+                    <svg id="connections-svg" class="connections-layer"></svg>
+                    <div id="nodes-container" class="nodes-layer"></div>
+                    <div id="minimap" class="minimap hidden">
+                        <div class="minimap-viewport"></div>
+                    </div>
+                `;
+                
+                // Re-initialize references
+                this.nodesContainer = document.getElementById('nodes-container');
+                this.svg = document.getElementById('connections-svg');
+                
+                // Re-add arrow marker
+                const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
+                const marker = document.createElementNS('http://www.w3.org/2000/svg', 'marker');
+                
+                marker.setAttribute('id', 'arrowhead');
+                marker.setAttribute('markerWidth', '10');
+                marker.setAttribute('markerHeight', '10');
+                marker.setAttribute('refX', '9');
+                marker.setAttribute('refY', '3');
+                marker.setAttribute('orient', 'auto');
+                
+                const polygon = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+                polygon.setAttribute('points', '0 0, 10 3, 0 6');
+                polygon.setAttribute('fill', '#4CAF50');
+                
+                marker.appendChild(polygon);
+                defs.appendChild(marker);
+                this.svg.appendChild(defs);
+                
+                // Reset state
+                this.nodes.clear();
+                this.connections.clear();
+                this.currentNodeId = null;
+                this.selectedNodeId = null;
+                this.zoom = 1;
+                this.pan = { x: 0, y: 0 };
+                this.updateTransform();
+                this.updateStats();
+                
+                console.log('Fallback clear completed');
+            }
+        } catch (error) {
+            console.error('Fallback clear also failed:', error);
         }
     }
 

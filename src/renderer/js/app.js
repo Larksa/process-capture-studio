@@ -6,7 +6,7 @@
 // Fallback UUID generator if crypto.randomUUID is not available
 function generateUUID() {
     if (typeof crypto !== 'undefined' && crypto.randomUUID) {
-        return generateUUID();
+        return crypto.randomUUID();  // FIXED: Was calling itself!
     }
     // Fallback UUID v4 generator
     return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
@@ -26,6 +26,12 @@ class ProcessCaptureApp {
         this.isRecording = false;
         this.currentBranch = null;
         this.recordingMode = 'linear'; // 'linear', 'branch', 'review'
+        
+        // Store element references to prevent loss
+        this.elements = {};
+        
+        // Store bound event handlers so we can remove them
+        this.handlers = {};
         
         this.initialize();
     }
@@ -54,48 +60,142 @@ class ProcessCaptureApp {
         // Listen for system-wide capture events from main process
         this.setupElectronListeners();
         
+        // Ensure canvas is properly referenced
+        this.ensureCanvasReference();
+        
         console.log('Process Capture Studio initialized');
+    }
+
+    /**
+     * Ensure canvas reference is properly set
+     */
+    ensureCanvasReference() {
+        // Wait for DOM to be ready
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', () => {
+                this.setupCanvasReference();
+            });
+        } else {
+            this.setupCanvasReference();
+        }
+    }
+
+    /**
+     * Setup canvas reference
+     */
+    setupCanvasReference() {
+        // Try multiple ways to get canvas reference
+        if (window.canvasBuilder) {
+            this.canvas = window.canvasBuilder;
+            console.log('Canvas reference set from window.canvasBuilder');
+        } else if (window.canvas) {
+            this.canvas = window.canvas;
+            console.log('Canvas reference set from window.canvas');
+        } else {
+            // Wait a bit and try again
+            setTimeout(() => {
+                if (window.canvasBuilder) {
+                    this.canvas = window.canvasBuilder;
+                    console.log('Canvas reference set from window.canvasBuilder (delayed)');
+                } else {
+                    console.warn('Canvas reference not found - some features may not work');
+                }
+            }, 500);
+        }
     }
 
     /**
      * Setup UI event handlers
      */
     setupUIHandlers() {
+        console.log('Setting up UI handlers');
+        
+        // Store element references
+        this.elements = {
+            startCapture: document.getElementById('start-capture'),
+            pauseCapture: document.getElementById('pause-capture'),
+            stopCapture: document.getElementById('stop-capture'),
+            saveProcess: document.getElementById('save-process'),
+            clearCapture: document.getElementById('clear-capture'),
+            refreshApp: document.getElementById('refresh-app'),
+            markImportant: document.getElementById('mark-important'),
+            exportMenu: document.getElementById('export-menu'),
+            chatInput: document.getElementById('chat-input'),
+            sendMessage: document.getElementById('send-message'),
+            activityFeed: document.getElementById('activity-feed'),
+            chatMessages: document.getElementById('chat-messages'),
+            nodeCount: document.getElementById('node-count'),
+            branchCount: document.getElementById('branch-count'),
+            completionStatus: document.getElementById('completion-status')
+        };
+        
+        // DON'T remove listeners on initial setup, only on recovery
+        // this.removeEventListeners();
+        
         // Window controls
         this.setupWindowControls();
         
         // Capture controls
-        document.getElementById('start-capture').addEventListener('click', () => {
-            this.startCapture();
-        });
+        if (this.elements.startCapture) {
+            this.elements.startCapture.addEventListener('click', () => {
+                this.startCapture();
+            });
+        }
         
-        document.getElementById('pause-capture').addEventListener('click', () => {
-            this.pauseCapture();
-        });
+        if (this.elements.pauseCapture) {
+            this.elements.pauseCapture.addEventListener('click', () => {
+                this.pauseCapture();
+            });
+        }
         
-        document.getElementById('stop-capture').addEventListener('click', () => {
-            this.stopCapture();
-        });
+        if (this.elements.stopCapture) {
+            this.elements.stopCapture.addEventListener('click', () => {
+                this.stopCapture();
+            });
+        }
+        
+        // Save button - manually save the process
+        if (this.elements.saveProcess) {
+            this.elements.saveProcess.addEventListener('click', () => {
+                this.saveProcess();
+            });
+        }
         
         // Clear button - clears all captured data
-        document.getElementById('clear-capture').addEventListener('click', () => {
-            this.clearAllData();
-        });
+        if (this.elements.clearCapture) {
+            this.elements.clearCapture.addEventListener('click', () => {
+                this.clearAllData();
+            });
+        }
         
         // Refresh button - refreshes the entire application
-        document.getElementById('refresh-app').addEventListener('click', () => {
-            this.refreshApplication();
-        });
+        if (this.elements.refreshApp) {
+            this.elements.refreshApp.addEventListener('click', () => {
+                this.refreshApplication();
+            });
+        }
+        
+        // Test clear button - for debugging
+        const testClearBtn = document.getElementById('test-clear');
+        if (testClearBtn) {
+            testClearBtn.addEventListener('click', () => {
+                this.testClearFunctionality();
+            });
+        }
         
         // Mark important button
-        document.getElementById('mark-important').addEventListener('click', () => {
-            this.markCurrentAsImportant();
-        });
+        if (this.elements.markImportant) {
+            this.elements.markImportant.addEventListener('click', () => {
+                this.markCurrentAsImportant();
+            });
+        }
         
         // Export menu
-        document.getElementById('export-menu').addEventListener('click', (e) => {
-            this.showExportDialog();
-        });
+        if (this.elements.exportMenu) {
+            this.elements.exportMenu.addEventListener('click', (e) => {
+                this.showExportDialog();
+            });
+        }
         
         // Export format buttons
         document.querySelectorAll('.export-option').forEach(btn => {
@@ -105,31 +205,43 @@ class ProcessCaptureApp {
         });
         
         // Chat input
-        const chatInput = document.getElementById('chat-input');
-        const sendButton = document.getElementById('send-message');
-        
-        const sendMessage = () => {
-            const message = chatInput.value.trim();
-            if (message) {
-                this.handleUserMessage(message);
-                chatInput.value = '';
-            }
-        };
-        
-        sendButton.addEventListener('click', sendMessage);
-        chatInput.addEventListener('keypress', (e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                sendMessage();
-            }
-        });
+        if (this.elements.chatInput && this.elements.sendMessage) {
+            const sendMessage = () => {
+                const message = this.elements.chatInput.value.trim();
+                if (message) {
+                    this.handleUserMessage(message);
+                    this.elements.chatInput.value = '';
+                }
+            };
+            
+            this.elements.sendMessage.addEventListener('click', sendMessage);
+            this.elements.chatInput.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    sendMessage();
+                }
+            });
+        }
         
         // Filter checkboxes
         document.querySelectorAll('.filter-bar input').forEach(checkbox => {
             checkbox.addEventListener('change', (e) => {
-                this.tracker.filters[e.target.id.replace('filter-', '')] = e.target.checked;
+                if (this.tracker && this.tracker.filters) {
+                    this.tracker.filters[e.target.id.replace('filter-', '')] = e.target.checked;
+                }
             });
         });
+        
+        console.log('UI handlers setup complete');
+    }
+    
+    /**
+     * Remove event listeners (to prevent duplicates)
+     */
+    removeEventListeners() {
+        // Don't clone elements - this breaks references
+        // Instead, we'll just be careful not to add duplicate listeners
+        console.log('Skipping removeEventListeners to preserve element references');
     }
 
     /**
@@ -302,6 +414,12 @@ class ProcessCaptureApp {
      */
     setupKeyboardShortcuts() {
         document.addEventListener('keydown', (e) => {
+            // Ctrl+S - Save process (without Shift)
+            if ((e.ctrlKey || e.metaKey) && e.key === 's' && !e.shiftKey) {
+                e.preventDefault();
+                this.saveProcess();
+            }
+            
             // Ctrl+Shift+M - Mark important
             if (e.ctrlKey && e.shiftKey && e.key === 'M') {
                 e.preventDefault();
@@ -429,14 +547,69 @@ class ProcessCaptureApp {
     }
 
     /**
+     * Save the current process manually
+     */
+    saveProcess() {
+        console.log('📁 SaveProcess: Starting manual save...');
+        try {
+            const nodeCount = this.engine.process.nodes.size;
+            console.log(`📁 SaveProcess: Saving ${nodeCount} nodes to localStorage`);
+            
+            if (this.engine.saveManual()) {
+                console.log('✅ SaveProcess: Save successful!');
+                this.showNotification('Process saved successfully!');
+                this.updateSaveIndicator(false);
+                
+                // Log what was saved
+                const savedData = localStorage.getItem('process_capture_data');
+                if (savedData) {
+                    const dataSize = (savedData.length / 1024).toFixed(2);
+                    console.log(`📁 SaveProcess: Saved ${dataSize}KB to localStorage`);
+                }
+            } else {
+                console.error('❌ SaveProcess: Save failed - engine.saveManual() returned false');
+                this.showNotification('Failed to save process', 'error');
+            }
+        } catch (error) {
+            console.error('❌ SaveProcess: Error during save:', error);
+            this.showNotification('Error saving process', 'error');
+        }
+    }
+    
+    /**
+     * Update save indicator
+     */
+    updateSaveIndicator(hasUnsavedChanges) {
+        const saveBtn = this.elements.saveProcess;
+        if (saveBtn) {
+            if (hasUnsavedChanges) {
+                saveBtn.classList.add('has-changes');
+                saveBtn.textContent = '💾 Save*';
+            } else {
+                saveBtn.classList.remove('has-changes');
+                saveBtn.textContent = '💾 Save';
+            }
+        }
+    }
+
+    /**
      * Clear all captured data and start fresh
      */
     clearAllData() {
+        console.log('🗑️ ClearAllData: Clear button clicked');
+        
+        // Check for unsaved changes
+        let confirmMessage = 'Are you sure you want to clear all captured data? This cannot be undone.';
+        if (this.engine && this.engine.getHasUnsavedChanges()) {
+            console.log('⚠️ ClearAllData: Detected unsaved changes');
+            confirmMessage = 'You have unsaved changes. Are you sure you want to clear all captured data? This cannot be undone.';
+        }
+        
         // Confirm before clearing
-        const confirmed = confirm('Are you sure you want to clear all captured data? This cannot be undone.');
+        const confirmed = confirm(confirmMessage);
         
         if (confirmed) {
-            console.log('User confirmed clear action');
+            console.log('✅ ClearAllData: User confirmed clear action');
             
             try {
                 // Stop capture if running
@@ -445,31 +618,51 @@ class ProcessCaptureApp {
                 }
                 
                 // Clear activity tracker
+                console.log('🗑️ ClearAllData: Clearing activity tracker...');
                 if (this.tracker) {
-                    this.tracker.clearBuffer();
+                    this.tracker.clearLog();
+                    console.log('✅ ClearAllData: Activity tracker buffer cleared');
                 }
-                const activityFeed = document.getElementById('activity-feed');
-                if (activityFeed) {
-                    activityFeed.innerHTML = '';
+                if (this.elements.activityFeed) {
+                    this.elements.activityFeed.innerHTML = '';
+                    console.log('✅ ClearAllData: Activity feed DOM cleared');
                 }
                 
                 // Clear process engine
+                console.log('🗑️ ClearAllData: Clearing process engine...');
                 if (this.engine) {
+                    const nodeCountBefore = this.engine.process.nodes.size;
                     this.engine.clearProcess();
+                    console.log(`✅ ClearAllData: Process engine cleared (had ${nodeCountBefore} nodes)`);
                 }
                 
                 // Clear canvas - MOST IMPORTANT
+                console.log('🗑️ ClearAllData: Clearing canvas...');
                 if (this.canvas) {
-                    console.log('Calling canvas.clear()');
+                    console.log('✅ ClearAllData: Canvas reference found, calling canvas.clear()');
                     this.canvas.clear();
+                    console.log('✅ ClearAllData: Canvas cleared successfully');
                 } else {
-                    console.error('Canvas object not found!');
+                    console.error('❌ ClearAllData: Canvas object not found in this.canvas!');
+                    // Try to get canvas from window object
+                    if (window.canvasBuilder) {
+                        console.log('🔍 ClearAllData: Found canvas in window.canvasBuilder, attempting clear...');
+                        this.canvas = window.canvasBuilder;
+                        this.canvas.clear();
+                        console.log('✅ ClearAllData: Canvas cleared via window.canvasBuilder');
+                    } else {
+                        console.error('❌ ClearAllData: Canvas not found in window object either');
+                        // Force page refresh as last resort
+                        if (confirm('Canvas not found. Would you like to refresh the page to fix this?')) {
+                            window.location.reload();
+                            return;
+                        }
+                    }
                 }
                 
                 // Clear chat messages (keep welcome message)
-                const chatMessages = document.getElementById('chat-messages');
-                if (chatMessages) {
-                    chatMessages.innerHTML = `
+                if (this.elements.chatMessages) {
+                    this.elements.chatMessages.innerHTML = `
                         <div class="message ai">
                             <div class="message-content">
                                 👋 Welcome to Process Capture Studio! I'll help you document your workflow. 
@@ -480,19 +673,41 @@ class ProcessCaptureApp {
                     `;
                 }
                 
+                // Verify localStorage is cleared
+                const remainingData = localStorage.getItem('process_capture_data');
+                if (remainingData) {
+                    console.error('⚠️ ClearAllData: localStorage still contains data after clear!');
+                    console.log('⚠️ ClearAllData: Attempting to force clear localStorage...');
+                    localStorage.removeItem('process_capture_data');
+                } else {
+                    console.log('✅ ClearAllData: localStorage verified as empty');
+                }
+                
+                // Final verification
+                console.log('📊 ClearAllData: Final state check:');
+                console.log(`  - Nodes in engine: ${this.engine.process.nodes.size}`);
+                console.log(`  - Canvas nodes: ${this.canvas ? this.canvas.nodes.size : 'N/A'}`);
+                console.log(`  - localStorage: ${localStorage.getItem('process_capture_data') ? 'HAS DATA' : 'EMPTY'}`);
+                
                 // Update status
+                console.log('✅ ClearAllData: All clear operations completed');
                 this.addChatMessage('ai', '🗑️ All data cleared. Ready to start a fresh capture!');
                 
                 // Update canvas status
-                const nodeCount = document.getElementById('node-count');
-                const branchCount = document.getElementById('branch-count');
-                const completionStatus = document.getElementById('completion-status');
-                
-                if (nodeCount) nodeCount.textContent = '0 steps';
-                if (branchCount) branchCount.textContent = '0 branches';
-                if (completionStatus) completionStatus.textContent = '0% mapped';
+                if (this.elements.nodeCount) this.elements.nodeCount.textContent = '0 steps';
+                if (this.elements.branchCount) this.elements.branchCount.textContent = '0 branches';
+                if (this.elements.completionStatus) this.elements.completionStatus.textContent = '0% mapped';
                 
                 console.log('Clear operation completed successfully');
+                
+                // CRITICAL: Recover UI state after clear
+                this.recoverUIState();
+                
+                // Force a visual refresh
+                setTimeout(() => {
+                    this.forceVisualRefresh();
+                }, 100);
+                
             } catch (error) {
                 console.error('Error during clear operation:', error);
                 alert('An error occurred while clearing data. Please refresh the page.');
@@ -500,6 +715,84 @@ class ProcessCaptureApp {
         }
     }
 
+    /**
+     * Force visual refresh of the canvas
+     */
+    forceVisualRefresh() {
+        console.log('Forcing visual refresh');
+        
+        try {
+            // Force canvas container refresh
+            const canvasContainer = document.getElementById('canvas-container');
+            if (canvasContainer) {
+                // Trigger a reflow
+                canvasContainer.style.display = 'none';
+                canvasContainer.offsetHeight; // Force reflow
+                canvasContainer.style.display = 'block';
+            }
+            
+            // Force nodes container refresh
+            const nodesContainer = document.getElementById('nodes-container');
+            if (nodesContainer) {
+                nodesContainer.style.display = 'none';
+                nodesContainer.offsetHeight; // Force reflow
+                nodesContainer.style.display = 'block';
+            }
+            
+            // Force SVG refresh
+            const svg = document.getElementById('connections-svg');
+            if (svg) {
+                svg.style.display = 'none';
+                svg.offsetHeight; // Force reflow
+                svg.style.display = 'block';
+            }
+            
+            console.log('Visual refresh completed');
+        } catch (error) {
+            console.error('Error during visual refresh:', error);
+        }
+    }
+
+    /**
+     * Recover UI state after clear operation
+     */
+    recoverUIState() {
+        console.log('Recovering UI state after clear');
+        
+        // DON'T re-setup handlers - they're still attached!
+        // Just reset button states
+        
+        const startBtn = document.getElementById('start-capture');
+        const pauseBtn = document.getElementById('pause-capture');
+        const stopBtn = document.getElementById('stop-capture');
+        
+        // Reset button states
+        if (startBtn) startBtn.disabled = false;
+        if (pauseBtn) pauseBtn.disabled = true;
+        if (stopBtn) stopBtn.disabled = true;
+        
+        // Ensure recording state is correct
+        this.isRecording = false;
+        
+        // Update status indicators
+        const captureStatus = document.getElementById('capture-status');
+        if (captureStatus) {
+            const statusText = captureStatus.querySelector('.status-text');
+            const statusDot = captureStatus.querySelector('.status-dot');
+            if (statusText) statusText.textContent = 'Ready';
+            if (statusDot) statusDot.style.background = '#4caf50';
+        }
+        
+        const globalStatus = document.getElementById('global-recording-status');
+        if (globalStatus) {
+            globalStatus.classList.remove('recording');
+            const lastSpan = globalStatus.querySelector('span:last-child');
+            if (lastSpan) lastSpan.textContent = 'Ready';
+        }
+        
+        console.log('UI state recovered successfully');
+    }
+    
     /**
      * Refresh the entire application
      */
@@ -806,13 +1099,27 @@ class ProcessCaptureApp {
         switch (event) {
             case 'nodeCreated':
                 // Canvas is updated separately
+                // Update save indicator
+                this.updateSaveIndicator(true);
                 break;
             case 'nodeUpdated':
                 // Update canvas node
                 this.canvas.updateNode(data);
+                // Update save indicator
+                this.updateSaveIndicator(true);
                 break;
             case 'edgeAdded':
                 // Canvas handles this
+                // Update save indicator
+                this.updateSaveIndicator(true);
+                break;
+            case 'process:saved':
+                // Update save indicator when saved
+                this.updateSaveIndicator(false);
+                break;
+            case 'process:cleared':
+                // Update save indicator when cleared
+                this.updateSaveIndicator(false);
                 break;
         }
     }
@@ -935,6 +1242,7 @@ class ProcessCaptureApp {
     showHelp() {
         const help = `
             **Keyboard Shortcuts:**
+            - Ctrl+S: Save process
             - Ctrl+Shift+M: Mark current as important step
             - Ctrl+Shift+S: Start/stop recording
             - Ctrl+E: Export process
@@ -982,18 +1290,35 @@ class ProcessCaptureApp {
      * Load saved session
      */
     loadSession() {
+        console.log('📂 LoadSession: Checking for saved session...');
+        
+        // Check localStorage first
+        const savedData = localStorage.getItem('process_capture_data');
+        if (savedData) {
+            const dataSize = (savedData.length / 1024).toFixed(2);
+            console.log(`📂 LoadSession: Found saved data (${dataSize}KB) in localStorage`);
+        } else {
+            console.log('📂 LoadSession: No saved data found in localStorage');
+        }
+        
         // Session is auto-loaded by ProcessEngine
         // Rebuild canvas from saved data
         if (this.engine.process.nodes.size > 0) {
+            console.log(`📂 LoadSession: Loading ${this.engine.process.nodes.size} nodes to canvas...`);
+            
             for (const [nodeId, node] of this.engine.process.nodes) {
                 this.canvas.addNode(node);
             }
             
+            console.log(`📂 LoadSession: Drawing ${this.engine.process.edges.length} connections...`);
             for (const edge of this.engine.process.edges) {
                 this.canvas.drawConnection(edge.from, edge.to, edge.type, edge.label);
             }
             
+            console.log('✅ LoadSession: Session restored successfully');
             this.addChatMessage('ai', `Loaded previous session with ${this.engine.process.nodes.size} steps.`);
+        } else {
+            console.log('📂 LoadSession: No nodes to load, starting fresh');
         }
     }
 
@@ -1006,6 +1331,53 @@ class ProcessCaptureApp {
 
     onCaptureStop() {
         console.log('Capture stopped');
+    }
+
+    /**
+     * Test the clear functionality
+     */
+    testClearFunctionality() {
+        console.log('Testing clear functionality...');
+        
+        // Add a test node to the canvas
+        if (this.canvas) {
+            const testNode = {
+                id: 'test-node-' + Date.now(),
+                type: 'action',
+                title: 'Test Node',
+                step: 1
+            };
+            
+            this.canvas.addNode(testNode);
+            console.log('Added test node');
+            
+            // Wait a moment, then clear
+            setTimeout(() => {
+                console.log('Clearing test node...');
+                this.canvas.clear();
+                
+                // Check if clear worked
+                setTimeout(() => {
+                    const nodesContainer = document.getElementById('nodes-container');
+                    const svg = document.getElementById('connections-svg');
+                    
+                    console.log('Clear test results:');
+                    console.log('- Nodes container children:', nodesContainer?.children?.length || 0);
+                    console.log('- SVG children (excluding defs):', 
+                        svg ? Array.from(svg.children).filter(child => child.tagName !== 'defs').length : 0);
+                    console.log('- Canvas nodes map size:', this.canvas.nodes.size);
+                    console.log('- Canvas connections map size:', this.canvas.connections.size);
+                    
+                    if (this.canvas.nodes.size === 0 && this.canvas.connections.size === 0) {
+                        console.log('✅ Clear test PASSED');
+                    } else {
+                        console.log('❌ Clear test FAILED');
+                    }
+                }, 100);
+            }, 500);
+        } else {
+            console.error('Canvas not available for testing');
+        }
     }
 }
 

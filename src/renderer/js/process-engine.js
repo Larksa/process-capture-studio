@@ -6,7 +6,7 @@
 // Fallback UUID generator if crypto.randomUUID is not available
 function generateUUID() {
     if (typeof crypto !== 'undefined' && crypto.randomUUID) {
-        return crypto.randomUUID();
+        return crypto.randomUUID();  // Use the native function
     }
     // Fallback UUID v4 generator
     return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
@@ -38,7 +38,8 @@ class ProcessEngine {
         this.history = [];
         this.redoStack = [];
         this.observers = new Set();
-        this.autoSave = true;
+        this.autoSave = false; // Changed to manual save by default
+        this.hasUnsavedChanges = false;
         
         this.initializeStorage();
     }
@@ -66,14 +67,13 @@ class ProcessEngine {
         
         this.history = [];
         this.redoStack = [];
+        this.hasUnsavedChanges = false; // Reset unsaved changes flag
         
         // Notify observers
         this.notifyObservers('process:cleared', {});
         
-        // Clear storage
-        if (this.autoSave) {
-            localStorage.removeItem('process_capture_current');
-        }
+        // Clear storage - always clear, not just when autoSave is on
+        localStorage.removeItem('process_capture_data');
     }
 
     /**
@@ -206,6 +206,8 @@ class ProcessEngine {
         this.process.currentNodeId = node.id;
         this.saveToHistory('node_created', node);
         this.notifyObservers('nodeCreated', node);
+        
+        this.hasUnsavedChanges = true;
         
         if (this.autoSave) {
             this.save();
@@ -691,16 +693,26 @@ execute${this.toCamelCase(this.process.name)}().catch(console.error);
      * Storage management
      */
     initializeStorage() {
+        console.log('🔧 ProcessEngine: Initializing storage...');
         const stored = localStorage.getItem('process_capture_data');
         if (stored) {
             try {
+                const dataSize = (stored.length / 1024).toFixed(2);
+                console.log(`🔧 ProcessEngine: Found stored data (${dataSize}KB), loading...`);
+                
                 const data = JSON.parse(stored);
                 this.process = data;
                 // Convert nodes back to Map
-                this.process.nodes = new Map(Object.entries(data.nodes));
+                this.process.nodes = new Map(Object.entries(data.nodes || {}));
+                
+                console.log(`✅ ProcessEngine: Loaded ${this.process.nodes.size} nodes from storage`);
+                console.log(`🔧 ProcessEngine: AutoSave is ${this.autoSave ? 'ENABLED' : 'DISABLED'}`);
             } catch (e) {
-                console.error('Failed to load stored process:', e);
+                console.error('❌ ProcessEngine: Failed to load stored process:', e);
             }
+        } else {
+            console.log('🔧 ProcessEngine: No saved data found, starting fresh');
+            console.log(`🔧 ProcessEngine: AutoSave is ${this.autoSave ? 'ENABLED' : 'DISABLED'}`);
         }
     }
 
@@ -711,6 +723,23 @@ execute${this.toCamelCase(this.process.name)}().catch(console.error);
         };
         localStorage.setItem('process_capture_data', JSON.stringify(data));
         this.process.updatedAt = new Date().toISOString();
+        this.hasUnsavedChanges = false;
+        this.notifyObservers('process:saved', { timestamp: this.process.updatedAt });
+        return true;
+    }
+    
+    /**
+     * Manually save the current process
+     */
+    saveManual() {
+        return this.save();
+    }
+    
+    /**
+     * Check if there are unsaved changes
+     */
+    getHasUnsavedChanges() {
+        return this.hasUnsavedChanges;
     }
 
     /**

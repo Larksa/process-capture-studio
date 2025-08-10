@@ -145,8 +145,10 @@ body {
 
 .tracker-controls {
     display: flex;
-    gap: 10px;
+    flex-wrap: wrap;
+    gap: 6px;
     align-items: center;
+    justify-content: flex-start;
 }
 
 .capture-indicator {
@@ -385,6 +387,7 @@ body {
     height: 100%;
     pointer-events: none;
     z-index: 1;
+    display: block !important; /* Ensure visibility after clear */
 }
 
 .nodes-layer {
@@ -392,6 +395,16 @@ body {
     width: 100%;
     height: 100%;
     z-index: 2;
+    display: block !important; /* Ensure visibility after clear */
+}
+
+/* Ensure canvas elements are visible after clearing */
+.canvas-container * {
+    display: block;
+}
+
+.canvas-container .hidden {
+    display: none !important;
 }
 
 /* Process Nodes */
@@ -406,6 +419,7 @@ body {
     min-width: 180px;
     box-shadow: 0 2px 4px rgba(0,0,0,0.1);
     z-index: 10;
+    display: block !important; /* Ensure nodes are visible */
 }
 
 .process-node:hover {
@@ -570,6 +584,28 @@ body {
 .btn.btn-danger:hover {
     background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%);
     transform: translateY(-1px);
+}
+
+.btn.btn-success {
+    background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%);
+    color: white;
+    border: none;
+}
+
+.btn.btn-success:hover {
+    background: linear-gradient(135deg, #45a049 0%, #3d8b40 100%);
+    transform: translateY(-1px);
+}
+
+.btn.btn-success.has-changes {
+    background: linear-gradient(135deg, #ff9800 0%, #f57c00 100%);
+    animation: unsaved-pulse 2s infinite;
+}
+
+@keyframes unsaved-pulse {
+    0% { box-shadow: 0 2px 4px rgba(255, 152, 0, 0.3); }
+    50% { box-shadow: 0 2px 8px rgba(255, 152, 0, 0.6); }
+    100% { box-shadow: 0 2px 4px rgba(255, 152, 0, 0.3); }
 }
 
 .btn-primary {
