@@ -1,0 +1,125 @@
+{
+  "name": "process-capture-studio",
+  "version": "1.0.0",
+  "description": "The magic three-panel system that captures every keystroke, decision, and why - ready for automation",
+  "main": "src/main/main.js",
+  "author": "Process Capture Studio Team",
+  "license": "MIT",
+  "homepage": "https://github.com/yourusername/process-capture-studio",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yourusername/process-capture-studio.git"
+  },
+  "scripts": {
+    "start": "electron .",
+    "dev": "NODE_ENV=development electron .",
+    "build": "electron-builder",
+    "build:win": "electron-builder --win",
+    "build:mac": "electron-builder --mac",
+    "build:linux": "electron-builder --linux",
+    "build:all": "electron-builder -mwl",
+    "dist": "electron-builder --publish=never",
+    "postinstall": "electron-builder install-app-deps",
+    "rebuild": "electron-rebuild",
+    "clean": "rm -rf dist builds node_modules",
+    "test": "echo 'Tests coming soon'"
+  },
+  "dependencies": {
+    "active-win": "^8.1.0"
+  },
+  "devDependencies": {
+    "electron": "^27.0.0",
+    "electron-builder": "^24.6.4",
+    "electron-rebuild": "^3.2.9",
+    "@electron/rebuild": "^3.3.0",
+    "electron-reloader": "^1.2.3"
+  },
+  "optionalDependencies": {
+    "iohook": "^0.9.3"
+  },
+  "build": {
+    "productName": "Process Capture Studio",
+    "appId": "com.processcapture.studio",
+    "compression": "maximum",
+    "directories": {
+      "output": "builds"
+    },
+    "files": [
+      "src/**/*",
+      "assets/**/*",
+      "!src/**/*.map",
+      "!**/*.md"
+    ],
+    "mac": {
+      "category": "public.app-category.productivity",
+      "icon": "assets/icon.icns",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": ["x64", "arm64"]
+        },
+        {
+          "target": "zip",
+          "arch": ["x64", "arm64"]
+        }
+      ]
+    },
+    "win": {
+      "icon": "assets/icon.ico",
+      "target": [
+        {
+          "target": "portable",
+          "arch": ["x64"]
+        },
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        }
+      ]
+    },
+    "portable": {
+      "artifactName": "ProcessCaptureStudio-Portable.exe"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "artifactName": "ProcessCaptureStudio-Setup.exe"
+    },
+    "linux": {
+      "icon": "assets/icon.png",
+      "category": "Utility",
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": ["x64"]
+        },
+        {
+          "target": "deb",
+          "arch": ["x64"]
+        }
+      ]
+    },
+    "appImage": {
+      "artifactName": "ProcessCaptureStudio.AppImage"
+    }
+  },
+  "keywords": [
+    "process",
+    "capture",
+    "automation",
+    "workflow",
+    "rpa",
+    "documentation",
+    "business process",
+    "keystroke",
+    "recording"
+  ],
+  "engines": {
+    "node": ">=16.0.0",
+    "npm": ">=8.0.0"
+  }
+}

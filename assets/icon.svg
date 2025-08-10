@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="256" height="256" viewBox="0 0 256 256" xmlns="http://www.w3.org/2000/svg">
+  <!-- Process Capture Studio Icon -->
+  <rect width="256" height="256" rx="20" fill="#4A90E2"/>
+  
+  <!-- Three panels representation -->
+  <rect x="20" y="60" width="70" height="136" rx="4" fill="white" opacity="0.9"/>
+  <rect x="93" y="60" width="70" height="136" rx="4" fill="white" opacity="0.9"/>
+  <rect x="166" y="60" width="70" height="136" rx="4" fill="white" opacity="0.9"/>
+  
+  <!-- Activity icon (left panel) -->
+  <circle cx="55" cy="90" r="4" fill="#4A90E2"/>
+  <rect x="45" y="105" width="40" height="3" rx="1.5" fill="#4A90E2" opacity="0.5"/>
+  <rect x="45" y="115" width="35" height="3" rx="1.5" fill="#4A90E2" opacity="0.5"/>
+  <rect x="45" y="125" width="38" height="3" rx="1.5" fill="#4A90E2" opacity="0.5"/>
+  
+  <!-- Chat icon (middle panel) -->
+  <path d="M 108 90 L 148 90 Q 150 90 150 92 L 150 115 Q 150 117 148 117 L 118 117 L 108 127 L 108 117 Q 106 117 106 115 L 106 92 Q 106 90 108 90 Z" fill="#4A90E2" opacity="0.3"/>
+  <rect x="115" y="98" width="25" height="2" rx="1" fill="#4A90E2"/>
+  <rect x="115" y="105" width="20" height="2" rx="1" fill="#4A90E2"/>
+  
+  <!-- Process map icon (right panel) -->
+  <circle cx="201" cy="90" r="5" fill="#4A90E2"/>
+  <path d="M 201 95 L 201 110" stroke="#4A90E2" stroke-width="2"/>
+  <rect x="191" y="110" width="20" height="12" rx="2" fill="#4A90E2" opacity="0.5"/>
+  <path d="M 201 122 L 201 135" stroke="#4A90E2" stroke-width="2"/>
+  <path d="M 201 135 L 186 150 M 201 135 L 216 150" stroke="#4A90E2" stroke-width="2"/>
+  <rect x="176" y="150" width="20" height="12" rx="2" fill="#4A90E2" opacity="0.3"/>
+  <rect x="206" y="150" width="20" height="12" rx="2" fill="#4A90E2" opacity="0.3"/>
+</svg>

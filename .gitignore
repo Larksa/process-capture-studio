@@ -1,0 +1,74 @@
+# Dependencies
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+package-lock.json
+yarn.lock
+
+# Build outputs
+dist/
+builds/
+out/
+*.unpacked/
+
+# Development
+.env
+.env.local
+.env.development
+.env.production
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Logs
+logs/
+*.log
+
+# Test coverage
+coverage/
+.nyc_output/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# OS files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Electron
+electron-builder.yml.backup
+
+# Optional iohook builds
+build/
+prebuilds/
+
+# User data (for development)
+userData/
+
+# Session data
+sessions/
+*.session
+
+# Certificates (for code signing)
+*.p12
+*.pfx
+*.key
+*.crt
+*.pem
+
+# But keep placeholder assets
+!assets/.gitkeep

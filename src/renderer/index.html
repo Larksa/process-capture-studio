@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Process Capture Studio - Live Builder</title>
+    <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+    <!-- Window Controls Bar -->
+    <div id="window-controls" class="window-controls-bar">
+        <div class="window-controls-left">
+            <label class="control-item">
+                <input type="checkbox" id="always-on-top"> 
+                <span>📌 Always on Top</span>
+            </label>
+            <div class="control-item opacity-control">
+                <span>Opacity:</span>
+                <input type="range" id="window-opacity" min="30" max="100" value="100" step="5">
+                <span id="opacity-value">100%</span>
+            </div>
+        </div>
+        <div class="window-controls-right">
+            <span class="recording-status" id="global-recording-status">
+                <span class="status-dot"></span>
+                <span>Ready</span>
+            </span>
+        </div>
+    </div>
+    
+    <div id="app-container">
+        <!-- LEFT PANEL: Activity Tracker -->
+        <div id="tracker-panel" class="panel">
+            <div class="panel-header">
+                <h3>🎬 Live Activity</h3>
+                <div class="tracker-controls">
+                    <button id="start-capture" class="btn btn-primary">Start Capture</button>
+                    <button id="pause-capture" class="btn" disabled>Pause</button>
+                    <div class="capture-indicator" id="capture-status">
+                        <span class="status-dot"></span>
+                        <span class="status-text">Ready</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="filter-bar">
+                <label>
+                    <input type="checkbox" id="filter-keystrokes" checked> Keystrokes
+                </label>
+                <label>
+                    <input type="checkbox" id="filter-clicks" checked> Clicks
+                </label>
+                <label>
+                    <input type="checkbox" id="filter-navigation" checked> Navigation
+                </label>
+            </div>
+            
+            <div id="activity-feed" class="activity-feed">
+                <!-- Real-time activity will appear here -->
+            </div>
+            
+            <div class="panel-footer">
+                <button id="mark-important" class="btn btn-accent">
+                    📌 Mark as Step (Ctrl+Shift+M)
+                </button>
+            </div>
+        </div>
+
+        <!-- MIDDLE PANEL: AI Chat Guide -->
+        <div id="chat-panel" class="panel">
+            <div class="panel-header">
+                <h3>💬 Process Guide</h3>
+                <button id="chat-settings" class="btn-icon">⚙️</button>
+            </div>
+            
+            <div id="chat-messages" class="chat-messages">
+                <div class="message ai">
+                    <div class="message-content">
+                        👋 Welcome to Process Capture Studio! I'll help you document your workflow. 
+                        Start by clicking "Start Capture" and then perform your normal process. 
+                        Press Ctrl+Shift+M to mark important steps.
+                    </div>
+                </div>
+            </div>
+            
+            <div id="quick-replies" class="quick-replies">
+                <!-- Dynamic quick reply buttons -->
+            </div>
+            
+            <div class="chat-input-container">
+                <textarea id="chat-input" 
+                          class="chat-input" 
+                          placeholder="Describe what you're doing or why..."
+                          rows="2"></textarea>
+                <button id="send-message" class="btn btn-primary">Send</button>
+            </div>
+        </div>
+
+        <!-- RIGHT PANEL: Interactive Process Canvas -->
+        <div id="canvas-panel" class="panel">
+            <div class="panel-header">
+                <h3>🗺️ Process Map</h3>
+                <div class="canvas-controls">
+                    <button id="zoom-in" class="btn-icon">🔍+</button>
+                    <button id="zoom-out" class="btn-icon">🔍-</button>
+                    <button id="zoom-fit" class="btn-icon">⊡</button>
+                    <span class="separator">|</span>
+                    <button id="toggle-minimap" class="btn-icon">🗺️</button>
+                    <button id="export-menu" class="btn">Export ▼</button>
+                </div>
+            </div>
+            
+            <div id="canvas-container" class="canvas-container">
+                <!-- SVG for connections -->
+                <svg id="connections-svg" class="connections-layer"></svg>
+                
+                <!-- Nodes container -->
+                <div id="nodes-container" class="nodes-layer"></div>
+                
+                <!-- Minimap -->
+                <div id="minimap" class="minimap hidden">
+                    <div class="minimap-viewport"></div>
+                </div>
+            </div>
+            
+            <div class="canvas-status">
+                <span id="node-count">0 steps</span>
+                <span id="branch-count">0 branches</span>
+                <span id="completion-status">0% mapped</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Floating dialogs -->
+    <div id="step-dialog" class="dialog hidden">
+        <div class="dialog-content">
+            <h4>Capture This Step</h4>
+            <div id="detected-context" class="detected-context">
+                <!-- Auto-detected context -->
+            </div>
+            
+            <label>What did you just do?</label>
+            <select id="action-type">
+                <option value="">Select action...</option>
+                <option value="click">Clicked button/link</option>
+                <option value="type">Entered data</option>
+                <option value="copy">Copied information</option>
+                <option value="paste">Pasted information</option>
+                <option value="navigate">Navigated to</option>
+                <option value="decision">Made a decision</option>
+                <option value="wait">Waited for something</option>
+                <option value="file">Opened/saved file</option>
+                <option value="custom">Other action...</option>
+            </select>
+            
+            <div id="decision-branches" class="hidden">
+                <label>What are you checking?</label>
+                <input type="text" id="decision-condition" placeholder="e.g., file type, data validity">
+                
+                <label>Possible outcomes:</label>
+                <div id="branch-list">
+                    <div class="branch-input">
+                        <input type="text" placeholder="If Excel file...">
+                        <button class="btn-small">+</button>
+                    </div>
+                </div>
+            </div>
+            
+            <label>Why? (The logic)</label>
+            <textarea id="step-logic" placeholder="IF [condition] THEN [action] BECAUSE [reason]"></textarea>
+            
+            <label>Where did the data come from?</label>
+            <input type="text" id="data-source" placeholder="e.g., Email, Column B, Previous step">
+            
+            <div class="dialog-buttons">
+                <button id="capture-step" class="btn btn-primary">Capture Step</button>
+                <button id="skip-step" class="btn">Skip</button>
+                <button id="go-back" class="btn">Add Previous Step</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Node context menu -->
+    <div id="node-menu" class="context-menu hidden">
+        <div class="menu-item" data-action="continue">↪️ Continue from here</div>
+        <div class="menu-item" data-action="branch">🔀 Add branch</div>
+        <div class="menu-item" data-action="edit">✏️ Edit step</div>
+        <div class="menu-item" data-action="delete">🗑️ Delete step</div>
+        <div class="menu-separator"></div>
+        <div class="menu-item" data-action="details">📋 View details</div>
+    </div>
+
+    <!-- Export dialog -->
+    <div id="export-dialog" class="dialog hidden">
+        <div class="dialog-content">
+            <h4>Export Process</h4>
+            
+            <div class="export-options">
+                <button class="export-option" data-format="json">
+                    <span class="format-icon">{ }</span>
+                    <span class="format-name">JSON</span>
+                    <span class="format-desc">Complete data for automation</span>
+                </button>
+                
+                <button class="export-option" data-format="yaml">
+                    <span class="format-icon">📄</span>
+                    <span class="format-name">YAML</span>
+                    <span class="format-desc">Human-readable format</span>
+                </button>
+                
+                <button class="export-option" data-format="mermaid">
+                    <span class="format-icon">📊</span>
+                    <span class="format-name">Mermaid</span>
+                    <span class="format-desc">Diagram markdown</span>
+                </button>
+                
+                <button class="export-option" data-format="playwright">
+                    <span class="format-icon">🎭</span>
+                    <span class="format-name">Playwright</span>
+                    <span class="format-desc">Test automation code</span>
+                </button>
+                
+                <button class="export-option" data-format="documentation">
+                    <span class="format-icon">📖</span>
+                    <span class="format-name">Documentation</span>
+                    <span class="format-desc">Process documentation</span>
+                </button>
+            </div>
+            
+            <textarea id="export-preview" class="export-preview" readonly></textarea>
+            
+            <div class="dialog-buttons">
+                <button id="copy-export" class="btn btn-primary">Copy to Clipboard</button>
+                <button id="download-export" class="btn">Download File</button>
+                <button id="close-export" class="btn">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="js/process-engine.js"></script>
+    <script src="js/activity-tracker.js"></script>
+    <script src="js/canvas-builder.js"></script>
+    <script src="js/chat-guide.js"></script>
+    <script src="js/app.js"></script>
+</body>
+</html>

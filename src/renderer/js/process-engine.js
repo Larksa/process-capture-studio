@@ -1,0 +1,708 @@
+/**
+ * Process Engine - Core data capture and management
+ * Captures EVERYTHING needed for automation
+ */
+
+class ProcessEngine {
+    constructor() {
+        this.process = {
+            id: crypto.randomUUID(),
+            name: 'Untitled Process',
+            version: '1.0.0',
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+            nodes: new Map(),
+            edges: [],
+            currentNodeId: null,
+            metadata: {
+                author: null,
+                description: null,
+                tags: [],
+                automationReady: false
+            }
+        };
+        
+        this.history = [];
+        this.redoStack = [];
+        this.observers = new Set();
+        this.autoSave = true;
+        
+        this.initializeStorage();
+    }
+
+    /**
+     * Create a new process node with complete automation data
+     */
+    createNode(data) {
+        const node = {
+            id: data.id || crypto.randomUUID(),
+            type: data.type || 'action', // action, decision, loop, parallel, merge
+            step: this.process.nodes.size + 1,
+            
+            // Core action data
+            action: {
+                type: data.actionType, // click, type, navigate, copy, paste, etc.
+                description: data.description,
+                timestamp: data.timestamp || Date.now()
+            },
+            
+            // UI Element data (for clicks, typing)
+            element: data.element ? {
+                selector: data.element.selector,
+                xpath: data.element.xpath,
+                id: data.element.id,
+                className: data.element.className,
+                tagName: data.element.tagName,
+                text: data.element.text,
+                attributes: data.element.attributes,
+                position: data.element.position, // {x, y} coordinates
+                size: data.element.size // {width, height}
+            } : null,
+            
+            // Application context
+            context: {
+                application: data.application, // 'chrome', 'excel', 'outlook', etc.
+                window: data.windowTitle,
+                url: data.url,
+                filePath: data.filePath,
+                processName: data.processName
+            },
+            
+            // Data flow
+            dataFlow: {
+                input: data.input ? {
+                    source: data.input.source, // 'user', 'clipboard', 'file', 'api', 'previous_step'
+                    sourceDetails: data.input.sourceDetails,
+                    value: data.input.value, // Sanitized/placeholder
+                    valueType: data.input.valueType, // 'text', 'number', 'date', 'credential'
+                    validation: data.input.validation
+                } : null,
+                output: data.output ? {
+                    destination: data.output.destination,
+                    format: data.output.format,
+                    storage: data.output.storage
+                } : null
+            },
+            
+            // Business logic
+            logic: {
+                condition: data.condition, // For decision nodes
+                reason: data.reason,
+                rule: data.rule, // IF-THEN-ELSE rule
+                fallback: data.fallback,
+                validation: data.validation
+            },
+            
+            // Branches (for decision nodes)
+            branches: data.branches ? data.branches.map(b => ({
+                id: b.id || crypto.randomUUID(),
+                condition: b.condition,
+                label: b.label,
+                probability: b.probability,
+                nextNodeId: b.nextNodeId,
+                recorded: b.recorded || false
+            })) : [],
+            
+            // Navigation paths
+            navigation: data.navigation ? {
+                fromPath: data.navigation.fromPath,
+                toPath: data.navigation.toPath,
+                method: data.navigation.method // 'click', 'keyboard', 'menu', 'direct'
+            } : null,
+            
+            // File operations
+            fileOperation: data.fileOperation ? {
+                type: data.fileOperation.type, // 'open', 'save', 'read', 'write'
+                path: data.fileOperation.path,
+                encoding: data.fileOperation.encoding,
+                location: data.fileOperation.location // Specific location in file (e.g., Excel cell)
+            } : null,
+            
+            // Credentials (secure placeholders)
+            credential: data.credential ? {
+                id: data.credential.id,
+                type: data.credential.type, // 'password', 'api_key', 'token'
+                field: data.credential.field,
+                storage: data.credential.storage, // 'prompt', 'keyring', 'env', 'sso'
+                placeholder: `CREDENTIAL_${data.credential.id}`
+            } : null,
+            
+            // Timing
+            timing: {
+                waitBefore: data.waitBefore || 0,
+                waitAfter: data.waitAfter || 0,
+                timeout: data.timeout || 30000,
+                retryCount: data.retryCount || 0,
+                retryDelay: data.retryDelay || 1000
+            },
+            
+            // Validation
+            validation: {
+                preConditions: data.preConditions || [],
+                postConditions: data.postConditions || [],
+                errorHandling: data.errorHandling || 'stop'
+            },
+            
+            // Visual position (for canvas)
+            position: data.position || { x: 0, y: 0 },
+            
+            // Metadata
+            metadata: {
+                capturedBy: data.capturedBy || 'manual',
+                confidence: data.confidence || 1.0,
+                notes: data.notes || '',
+                tags: data.tags || [],
+                screenshots: data.screenshots || []
+            }
+        };
+        
+        this.process.nodes.set(node.id, node);
+        this.process.currentNodeId = node.id;
+        this.saveToHistory('node_created', node);
+        this.notifyObservers('nodeCreated', node);
+        
+        if (this.autoSave) {
+            this.save();
+        }
+        
+        return node;
+    }
+
+    /**
+     * Add an edge between nodes
+     */
+    addEdge(fromId, toId, type = 'normal', condition = null) {
+        const edge = {
+            id: crypto.randomUUID(),
+            from: fromId,
+            to: toId,
+            type: type, // 'normal', 'branch', 'loop', 'error'
+            condition: condition,
+            label: condition ? this.generateEdgeLabel(condition) : null
+        };
+        
+        this.process.edges.push(edge);
+        this.notifyObservers('edgeAdded', edge);
+        
+        if (this.autoSave) {
+            this.save();
+        }
+        
+        return edge;
+    }
+
+    /**
+     * Update a node with new data
+     */
+    updateNode(nodeId, updates) {
+        const node = this.process.nodes.get(nodeId);
+        if (!node) return null;
+        
+        // Deep merge updates
+        const updatedNode = this.deepMerge(node, updates);
+        updatedNode.metadata.lastModified = Date.now();
+        
+        this.process.nodes.set(nodeId, updatedNode);
+        this.saveToHistory('node_updated', { nodeId, updates });
+        this.notifyObservers('nodeUpdated', updatedNode);
+        
+        if (this.autoSave) {
+            this.save();
+        }
+        
+        return updatedNode;
+    }
+
+    /**
+     * Get automation-ready export
+     */
+    exportForAutomation(format = 'json') {
+        const exportData = {
+            process: {
+                id: this.process.id,
+                name: this.process.name,
+                version: this.process.version,
+                metadata: this.process.metadata
+            },
+            nodes: Array.from(this.process.nodes.values()),
+            edges: this.process.edges,
+            dataFlow: this.analyzeDataFlow(),
+            credentials: this.extractCredentials(),
+            files: this.extractFileOperations(),
+            validation: this.extractValidationRules(),
+            implementation: {
+                playwright: this.generatePlaywrightCode(),
+                python: this.generatePythonCode(),
+                documentation: this.generateDocumentation()
+            }
+        };
+        
+        switch (format) {
+            case 'json':
+                return JSON.stringify(exportData, null, 2);
+            case 'yaml':
+                return this.toYAML(exportData);
+            case 'mermaid':
+                return this.toMermaid();
+            case 'playwright':
+                return exportData.implementation.playwright;
+            case 'python':
+                return exportData.implementation.python;
+            case 'documentation':
+                return exportData.implementation.documentation;
+            default:
+                return exportData;
+        }
+    }
+
+    /**
+     * Generate Playwright automation code
+     */
+    generatePlaywrightCode() {
+        let code = `// Auto-generated Playwright automation
+// Process: ${this.process.name}
+// Generated: ${new Date().toISOString()}
+
+const { chromium } = require('playwright');
+
+async function execute${this.toCamelCase(this.process.name)}() {
+    const browser = await chromium.launch({ headless: false });
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    
+`;
+        
+        // Convert nodes to code
+        const sortedNodes = this.topologicalSort();
+        
+        for (const node of sortedNodes) {
+            code += this.nodeToPlaywrightCode(node);
+        }
+        
+        code += `
+    await browser.close();
+}
+
+execute${this.toCamelCase(this.process.name)}().catch(console.error);
+`;
+        
+        return code;
+    }
+
+    /**
+     * Convert a single node to Playwright code
+     */
+    nodeToPlaywrightCode(node) {
+        let code = `    // Step ${node.step}: ${node.action.description}\n`;
+        
+        // Add wait if specified
+        if (node.timing.waitBefore) {
+            code += `    await page.waitForTimeout(${node.timing.waitBefore});\n`;
+        }
+        
+        // Generate action code based on type
+        switch (node.action.type) {
+            case 'navigate':
+                code += `    await page.goto('${node.context.url}');\n`;
+                break;
+                
+            case 'click':
+                if (node.element) {
+                    code += `    await page.click('${node.element.selector}');\n`;
+                }
+                break;
+                
+            case 'type':
+                if (node.element && node.dataFlow.input) {
+                    const value = node.dataFlow.input.valueType === 'credential' 
+                        ? `process.env.${node.credential.placeholder}`
+                        : `'${node.dataFlow.input.value}'`;
+                    code += `    await page.fill('${node.element.selector}', ${value});\n`;
+                }
+                break;
+                
+            case 'copy':
+                code += `    const ${node.id}_value = await page.textContent('${node.element.selector}');\n`;
+                break;
+                
+            case 'paste':
+                code += `    await page.fill('${node.element.selector}', ${node.dataFlow.input.sourceDetails});\n`;
+                break;
+                
+            case 'decision':
+                code += this.generateDecisionCode(node);
+                break;
+        }
+        
+        // Add validation if specified
+        if (node.validation.postConditions.length > 0) {
+            code += `    // Validate: ${node.validation.postConditions.join(', ')}\n`;
+        }
+        
+        return code + '\n';
+    }
+
+    /**
+     * Generate decision/branching code
+     */
+    generateDecisionCode(node) {
+        let code = '';
+        
+        for (let i = 0; i < node.branches.length; i++) {
+            const branch = node.branches[i];
+            const keyword = i === 0 ? 'if' : 'else if';
+            
+            code += `    ${keyword} (${branch.condition}) {\n`;
+            code += `        // Branch: ${branch.label}\n`;
+            
+            // Add branch-specific code here
+            if (branch.nextNodeId) {
+                const nextNode = this.process.nodes.get(branch.nextNodeId);
+                if (nextNode) {
+                    code += `        ${this.nodeToPlaywrightCode(nextNode)}`;
+                }
+            }
+            
+            code += `    }\n`;
+        }
+        
+        return code;
+    }
+
+    /**
+     * Analyze data flow through the process
+     */
+    analyzeDataFlow() {
+        const dataFlow = {
+            inputs: [],
+            outputs: [],
+            transformations: [],
+            dependencies: new Map()
+        };
+        
+        for (const [nodeId, node] of this.process.nodes) {
+            // Track inputs
+            if (node.dataFlow?.input) {
+                dataFlow.inputs.push({
+                    nodeId,
+                    step: node.step,
+                    source: node.dataFlow.input.source,
+                    type: node.dataFlow.input.valueType
+                });
+            }
+            
+            // Track outputs
+            if (node.dataFlow?.output) {
+                dataFlow.outputs.push({
+                    nodeId,
+                    step: node.step,
+                    destination: node.dataFlow.output.destination,
+                    format: node.dataFlow.output.format
+                });
+            }
+            
+            // Track dependencies
+            if (node.dataFlow?.input?.source === 'previous_step') {
+                const sourceNodeId = node.dataFlow.input.sourceDetails;
+                if (!dataFlow.dependencies.has(nodeId)) {
+                    dataFlow.dependencies.set(nodeId, []);
+                }
+                dataFlow.dependencies.get(nodeId).push(sourceNodeId);
+            }
+        }
+        
+        return dataFlow;
+    }
+
+    /**
+     * Extract all credentials for secure handling
+     */
+    extractCredentials() {
+        const credentials = [];
+        
+        for (const [nodeId, node] of this.process.nodes) {
+            if (node.credential) {
+                credentials.push({
+                    id: node.credential.id,
+                    type: node.credential.type,
+                    field: node.credential.field,
+                    storage: node.credential.storage,
+                    placeholder: node.credential.placeholder,
+                    usedInStep: node.step
+                });
+            }
+        }
+        
+        return credentials;
+    }
+
+    /**
+     * Extract file operations
+     */
+    extractFileOperations() {
+        const files = [];
+        
+        for (const [nodeId, node] of this.process.nodes) {
+            if (node.fileOperation) {
+                files.push({
+                    step: node.step,
+                    operation: node.fileOperation.type,
+                    path: node.fileOperation.path,
+                    location: node.fileOperation.location
+                });
+            }
+        }
+        
+        return files;
+    }
+
+    /**
+     * Extract validation rules
+     */
+    extractValidationRules() {
+        const rules = [];
+        
+        for (const [nodeId, node] of this.process.nodes) {
+            if (node.validation.preConditions.length > 0 || 
+                node.validation.postConditions.length > 0) {
+                rules.push({
+                    step: node.step,
+                    pre: node.validation.preConditions,
+                    post: node.validation.postConditions,
+                    errorHandling: node.validation.errorHandling
+                });
+            }
+        }
+        
+        return rules;
+    }
+
+    /**
+     * Generate human-readable documentation
+     */
+    generateDocumentation() {
+        let doc = `# ${this.process.name}\n\n`;
+        doc += `## Overview\n${this.process.metadata.description || 'No description provided'}\n\n`;
+        doc += `## Process Steps\n\n`;
+        
+        const sortedNodes = this.topologicalSort();
+        
+        for (const node of sortedNodes) {
+            doc += `### Step ${node.step}: ${node.action.description}\n`;
+            
+            if (node.logic.reason) {
+                doc += `**Why**: ${node.logic.reason}\n`;
+            }
+            
+            if (node.logic.rule) {
+                doc += `**Rule**: ${node.logic.rule}\n`;
+            }
+            
+            if (node.type === 'decision') {
+                doc += `**Branches**:\n`;
+                for (const branch of node.branches) {
+                    doc += `- ${branch.label}: ${branch.condition}\n`;
+                }
+            }
+            
+            if (node.dataFlow?.input) {
+                doc += `**Input**: ${node.dataFlow.input.source} - ${node.dataFlow.input.sourceDetails}\n`;
+            }
+            
+            if (node.dataFlow?.output) {
+                doc += `**Output**: ${node.dataFlow.output.destination}\n`;
+            }
+            
+            doc += '\n';
+        }
+        
+        // Add data flow section
+        doc += `## Data Flow\n`;
+        const dataFlow = this.analyzeDataFlow();
+        doc += `- **Inputs**: ${dataFlow.inputs.map(i => i.source).join(', ')}\n`;
+        doc += `- **Outputs**: ${dataFlow.outputs.map(o => o.destination).join(', ')}\n`;
+        
+        // Add credentials section
+        const credentials = this.extractCredentials();
+        if (credentials.length > 0) {
+            doc += `\n## Required Credentials\n`;
+            for (const cred of credentials) {
+                doc += `- ${cred.type} for ${cred.field} (Step ${cred.usedInStep})\n`;
+            }
+        }
+        
+        return doc;
+    }
+
+    /**
+     * Topological sort for correct execution order
+     */
+    topologicalSort() {
+        const sorted = [];
+        const visited = new Set();
+        
+        const visit = (nodeId) => {
+            if (visited.has(nodeId)) return;
+            visited.add(nodeId);
+            
+            const node = this.process.nodes.get(nodeId);
+            if (!node) return;
+            
+            // Visit dependencies first
+            const edges = this.process.edges.filter(e => e.to === nodeId);
+            for (const edge of edges) {
+                visit(edge.from);
+            }
+            
+            sorted.push(node);
+        };
+        
+        // Start from nodes with no incoming edges
+        for (const [nodeId, node] of this.process.nodes) {
+            const hasIncoming = this.process.edges.some(e => e.to === nodeId);
+            if (!hasIncoming) {
+                visit(nodeId);
+            }
+        }
+        
+        // Visit any remaining nodes
+        for (const [nodeId] of this.process.nodes) {
+            visit(nodeId);
+        }
+        
+        return sorted;
+    }
+
+    /**
+     * Storage management
+     */
+    initializeStorage() {
+        const stored = localStorage.getItem('process_capture_data');
+        if (stored) {
+            try {
+                const data = JSON.parse(stored);
+                this.process = data;
+                // Convert nodes back to Map
+                this.process.nodes = new Map(Object.entries(data.nodes));
+            } catch (e) {
+                console.error('Failed to load stored process:', e);
+            }
+        }
+    }
+
+    save() {
+        const data = {
+            ...this.process,
+            nodes: Object.fromEntries(this.process.nodes)
+        };
+        localStorage.setItem('process_capture_data', JSON.stringify(data));
+        this.process.updatedAt = new Date().toISOString();
+    }
+
+    /**
+     * History management
+     */
+    saveToHistory(action, data) {
+        this.history.push({
+            action,
+            data,
+            timestamp: Date.now()
+        });
+        
+        // Limit history size
+        if (this.history.length > 100) {
+            this.history.shift();
+        }
+        
+        // Clear redo stack on new action
+        this.redoStack = [];
+    }
+
+    undo() {
+        if (this.history.length === 0) return;
+        
+        const action = this.history.pop();
+        this.redoStack.push(action);
+        
+        // Implement undo logic based on action type
+        // ...
+    }
+
+    redo() {
+        if (this.redoStack.length === 0) return;
+        
+        const action = this.redoStack.pop();
+        this.history.push(action);
+        
+        // Implement redo logic based on action type
+        // ...
+    }
+
+    /**
+     * Observer pattern for UI updates
+     */
+    subscribe(callback) {
+        this.observers.add(callback);
+        return () => this.observers.delete(callback);
+    }
+
+    notifyObservers(event, data) {
+        for (const callback of this.observers) {
+            callback(event, data);
+        }
+    }
+
+    /**
+     * Utility functions
+     */
+    deepMerge(target, source) {
+        const result = { ...target };
+        
+        for (const key in source) {
+            if (source[key] && typeof source[key] === 'object' && !Array.isArray(source[key])) {
+                result[key] = this.deepMerge(result[key] || {}, source[key]);
+            } else {
+                result[key] = source[key];
+            }
+        }
+        
+        return result;
+    }
+
+    toCamelCase(str) {
+        return str.replace(/(?:^\w|[A-Z]|\b\w)/g, (word, index) => {
+            return index === 0 ? word.toLowerCase() : word.toUpperCase();
+        }).replace(/\s+/g, '');
+    }
+
+    toYAML(data) {
+        // Simple YAML conversion (for full implementation, use a library)
+        return `# Process: ${this.process.name}
+version: ${this.process.version}
+steps:
+${Array.from(this.process.nodes.values()).map(node => `  - step: ${node.step}
+    action: ${node.action.description}
+    type: ${node.action.type}
+    ${node.logic.reason ? `reason: ${node.logic.reason}` : ''}
+    ${node.logic.rule ? `rule: ${node.logic.rule}` : ''}`).join('\n')}`;
+    }
+
+    toMermaid() {
+        let mermaid = 'graph TD\n';
+        
+        for (const [nodeId, node] of this.process.nodes) {
+            const shape = node.type === 'decision' ? `{${node.action.description}}` : `[${node.action.description}]`;
+            mermaid += `    ${nodeId}${shape}\n`;
+        }
+        
+        for (const edge of this.process.edges) {
+            const label = edge.condition ? `|${edge.condition}|` : '';
+            mermaid += `    ${edge.from} -->${label} ${edge.to}\n`;
+        }
+        
+        return mermaid;
+    }
+}
+
+// Export for use in other modules
+window.ProcessEngine = ProcessEngine;
