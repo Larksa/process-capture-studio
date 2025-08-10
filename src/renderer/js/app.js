@@ -64,6 +64,16 @@ class ProcessCaptureApp {
             this.stopCapture();
         });
         
+        // Clear button - clears all captured data
+        document.getElementById('clear-capture').addEventListener('click', () => {
+            this.clearAllData();
+        });
+        
+        // Refresh button - refreshes the entire application
+        document.getElementById('refresh-app').addEventListener('click', () => {
+            this.refreshApplication();
+        });
+        
         // Mark important button
         document.getElementById('mark-important').addEventListener('click', () => {
             this.markCurrentAsImportant();
@@ -402,6 +412,69 @@ class ProcessCaptureApp {
         // Notify main process to stop system-wide capture
         if (window.electronAPI) {
             window.electronAPI.stopCapture();
+        }
+    }
+
+    /**
+     * Clear all captured data and start fresh
+     */
+    clearAllData() {
+        // Confirm before clearing
+        const confirmed = confirm('Are you sure you want to clear all captured data? This cannot be undone.');
+        
+        if (confirmed) {
+            // Stop capture if running
+            if (this.isRecording) {
+                this.stopCapture();
+            }
+            
+            // Clear activity tracker
+            this.tracker.clearBuffer();
+            document.getElementById('activity-feed').innerHTML = '';
+            
+            // Clear process engine
+            this.engine.clearProcess();
+            
+            // Clear canvas
+            this.canvas.clear();
+            
+            // Clear chat messages (keep welcome message)
+            const chatMessages = document.getElementById('chat-messages');
+            chatMessages.innerHTML = `
+                <div class="message ai">
+                    <div class="message-content">
+                        👋 Welcome to Process Capture Studio! I'll help you document your workflow. 
+                        Start by clicking "Start Capture" and then perform your normal process. 
+                        Press Ctrl+Shift+M to mark important steps.
+                    </div>
+                </div>
+            `;
+            
+            // Update status
+            this.addChatMessage('ai', '🗑️ All data cleared. Ready to start a fresh capture!');
+            
+            // Update canvas status
+            document.getElementById('node-count').textContent = '0 steps';
+            document.getElementById('branch-count').textContent = '0 branches';
+            document.getElementById('completion-status').textContent = '0% mapped';
+        }
+    }
+
+    /**
+     * Refresh the entire application
+     */
+    refreshApplication() {
+        // Confirm before refreshing
+        const confirmed = confirm('Are you sure you want to refresh? Any unsaved data will be lost.');
+        
+        if (confirmed) {
+            // If in Electron, reload the window
+            if (window.electronAPI) {
+                window.location.reload();
+            } else {
+                // For browser, just reload
+                window.location.reload();
+            }
         }
     }
 

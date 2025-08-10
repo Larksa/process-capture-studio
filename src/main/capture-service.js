@@ -6,6 +6,8 @@
 
 const EventEmitter = require('events');
 const activeWin = require('active-win');
+// Temporarily disable browser context to avoid async issues
+// const BrowserContextService = require('./browser-context-service');
 
 class CaptureService extends EventEmitter {
     constructor() {
@@ -18,6 +20,7 @@ class CaptureService extends EventEmitter {
         this.debugMode = process.env.DEBUG_CAPTURE === 'true';
         this.mainWindowBounds = null; // Track main window position
         this.captureInternalClicks = false; // Filter internal clicks by default
+        // this.browserContext = new BrowserContextService(); // Browser context capture - DISABLED for stability
         this.importantPatterns = {
             copy: /ctrl\+c|cmd\+c/i,
             paste: /ctrl\+v|cmd\+v/i,
@@ -60,6 +63,24 @@ class CaptureService extends EventEmitter {
             if (process.platform === 'darwin') {
                 await this.checkMacOSPermissions();
             }
+            
+            // Browser context temporarily disabled to avoid Electron async issues
+            // TODO: Move browser context to a separate process or use IPC
+            /*
+            setTimeout(async () => {
+                try {
+                    const connected = await this.browserContext.connectToExistingBrowser();
+                    if (connected) {
+                        console.log('Connected to browser for enhanced context capture');
+                        await this.browserContext.monitorPages();
+                    } else {
+                        console.log('No browser connection - basic capture only');
+                    }
+                } catch (error) {
+                    console.warn('Browser context service initialization failed:', error);
+                }
+            }, 1000);
+            */
             
             // Try to load uiohook-napi (modern replacement for iohook)
             // Compatible with Electron 27 and modern Node.js versions
@@ -321,9 +342,43 @@ class CaptureService extends EventEmitter {
         
         // Try to get enhanced browser context if it's a browser
         if (this.isBrowser(context.application)) {
-            activity.browserContext = await this.getBrowserContext(context);
-            if (activity.browserContext?.url) {
-                activity.description = `Clicked in ${context.application} - ${activity.browserContext.url}`;
+            // Try to get element context from browser using Playwright
+            if (this.browserContext && this.browserContext.isConnected && this.browserContext.activePage) {
+                try {
+                    // Get element at click position
+                    const element = await this.browserContext.getElementAtPoint(event.x, event.y);
+                    if (element) {
+                        activity.element = element;
+                        
+                        // Get page context
+                        const pageContext = await this.browserContext.getPageContext();
+                        if (pageContext) {
+                            activity.pageContext = pageContext;
+                        }
+                        
+                        // Update description with rich context
+                        if (element.selectors?.text) {
+                            activity.description = `Clicked "${element.selectors.text}" in ${context.application}`;
+                        } else if (element.tag) {
+                            activity.description = `Clicked <${element.tag}> element in ${context.application}`;
+                        }
+                        
+                        // Add URL to description if available
+                        if (pageContext?.url) {
+                            activity.description += ` - ${pageContext.url}`;
+                        }
+                    }
+                } catch (error) {
+                    this.safeLog('Failed to get browser element context:', error.message);
+                }
+            }
+            
+            // Fallback to basic browser context
+            if (!activity.element) {
+                activity.browserContext = await this.getBrowserContext(context);
+                if (activity.browserContext?.url) {
+                    activity.description = `Clicked in ${context.application} - ${activity.browserContext.url}`;
+                }
             }
         }
         
@@ -603,7 +658,17 @@ class CaptureService extends EventEmitter {
     /**
      * Cleanup on exit
      */
-    cleanup() {
+    async cleanup() {
+        // Clean up browser context
+        if (this.browserContext) {
+            try {
+                await this.browserContext.disconnect();
+            } catch (error) {
+                console.error('Error cleaning up browser context:', error);
+            }
+        }
+        
+        // Clean up iohook
         if (this.ioHook) {
             try {
                 this.ioHook.stop();

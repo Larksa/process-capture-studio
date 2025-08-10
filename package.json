@@ -26,6 +26,7 @@
   },
   "dependencies": {
     "active-win": "^8.1.0",
+    "playwright": "^1.54.2",
     "uiohook-napi": "^1.5.4"
   },
   "devDependencies": {

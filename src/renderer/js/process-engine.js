@@ -31,6 +31,39 @@ class ProcessEngine {
     }
 
     /**
+     * Clear the entire process and start fresh
+     */
+    clearProcess() {
+        this.process = {
+            id: crypto.randomUUID(),
+            name: 'Untitled Process',
+            version: '1.0.0',
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+            nodes: new Map(),
+            edges: [],
+            currentNodeId: null,
+            metadata: {
+                author: null,
+                description: null,
+                tags: [],
+                automationReady: false
+            }
+        };
+        
+        this.history = [];
+        this.redoStack = [];
+        
+        // Notify observers
+        this.notifyObservers('process:cleared', {});
+        
+        // Clear storage
+        if (this.autoSave) {
+            localStorage.removeItem('process_capture_current');
+        }
+    }
+
+    /**
      * Create a new process node with complete automation data
      */
     createNode(data) {
@@ -303,40 +336,108 @@ execute${this.toCamelCase(this.process.name)}().catch(console.error);
         // Generate action code based on type
         switch (node.action.type) {
             case 'navigate':
-                code += `    await page.goto('${node.context.url}');\n`;
+                // Use pageContext URL if available, otherwise use context URL
+                const url = node.pageContext?.url || node.context?.url || node.action.url;
+                if (url) {
+                    code += `    await page.goto('${url}');\n`;
+                }
                 break;
                 
             case 'click':
-                if (node.element) {
+                // Use rich element selectors from Playwright capture
+                if (node.element?.selectors) {
+                    // Prefer ID selector, then CSS, then XPath
+                    const selector = node.element.selectors.id || 
+                                   node.element.selectors.css || 
+                                   node.element.selectors.xpath;
+                    
+                    if (selector) {
+                        // Add wait for element to be visible
+                        code += `    await page.waitForSelector('${selector}', { state: 'visible' });\n`;
+                        code += `    await page.click('${selector}');\n`;
+                        
+                        // Add comment with element text for clarity
+                        if (node.element.selectors.text) {
+                            code += `    // Clicked: "${node.element.selectors.text}"\n`;
+                        }
+                    }
+                } else if (node.element?.selector) {
+                    // Fallback to old selector format
                     code += `    await page.click('${node.element.selector}');\n`;
+                } else if (node.position) {
+                    // Last resort: use coordinates
+                    code += `    // Warning: Using coordinates - selector not available\n`;
+                    code += `    await page.mouse.click(${node.position.x}, ${node.position.y});\n`;
                 }
                 break;
                 
             case 'type':
-                if (node.element && node.dataFlow.input) {
-                    const value = node.dataFlow.input.valueType === 'credential' 
-                        ? `process.env.${node.credential.placeholder}`
-                        : `'${node.dataFlow.input.value}'`;
-                    code += `    await page.fill('${node.element.selector}', ${value});\n`;
+            case 'input':
+                if (node.element?.selectors || node.element?.selector) {
+                    const selector = node.element.selectors?.id || 
+                                   node.element.selectors?.css || 
+                                   node.element.selector;
+                    
+                    if (node.dataFlow?.input) {
+                        const value = node.dataFlow.input.valueType === 'credential' 
+                            ? `process.env.${node.credential?.placeholder || 'SECRET'}`
+                            : `'${node.dataFlow.input.value || ''}'`;
+                        
+                        code += `    await page.waitForSelector('${selector}', { state: 'visible' });\n`;
+                        code += `    await page.fill('${selector}', ${value});\n`;
+                    }
+                }
+                break;
+                
+            case 'keystroke':
+                // Handle keyboard shortcuts
+                if (node.key) {
+                    const keys = node.key.split('+').map(k => k.trim());
+                    code += `    await page.keyboard.press('${keys.join('+').toLowerCase()}');\n`;
                 }
                 break;
                 
             case 'copy':
-                code += `    const ${node.id}_value = await page.textContent('${node.element.selector}');\n`;
+                if (node.element?.selectors || node.element?.selector) {
+                    const selector = node.element.selectors?.id || 
+                                   node.element.selectors?.css || 
+                                   node.element.selector;
+                    code += `    const ${node.id}_value = await page.textContent('${selector}');\n`;
+                }
                 break;
                 
             case 'paste':
-                code += `    await page.fill('${node.element.selector}', ${node.dataFlow.input.sourceDetails});\n`;
+                if (node.element?.selectors || node.element?.selector) {
+                    const selector = node.element.selectors?.id || 
+                                   node.element.selectors?.css || 
+                                   node.element.selector;
+                    const source = node.dataFlow?.input?.sourceDetails || `${node.id}_clipboard`;
+                    code += `    await page.fill('${selector}', ${source});\n`;
+                }
                 break;
                 
             case 'decision':
                 code += this.generateDecisionCode(node);
                 break;
+                
+            case 'mark_important':
+                code += `    // Important: ${node.action.description || 'User marked this step as important'}\n`;
+                break;
         }
         
         // Add validation if specified
-        if (node.validation.postConditions.length > 0) {
+        if (node.validation?.postConditions?.length > 0) {
             code += `    // Validate: ${node.validation.postConditions.join(', ')}\n`;
+            
+            // Generate actual validation code if we have selectors
+            for (const condition of node.validation.postConditions) {
+                if (condition.includes('visible')) {
+                    const selector = node.element?.selectors?.css || node.element?.selector;
+                    if (selector) {
+                        code += `    await expect(page.locator('${selector}')).toBeVisible();\n`;
+                    }
+                }
+            }
         }
         
         return code + '\n';

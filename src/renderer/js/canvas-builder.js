@@ -27,6 +27,35 @@ class CanvasBuilder {
     }
 
     /**
+     * Clear all nodes and connections from the canvas
+     */
+    clear() {
+        // Clear all nodes
+        this.nodes.clear();
+        this.connections.clear();
+        this.currentNodeId = null;
+        this.selectedNodeId = null;
+        
+        // Clear DOM elements
+        this.nodesContainer.innerHTML = '';
+        
+        // Clear SVG connections
+        while (this.svg.firstChild) {
+            this.svg.removeChild(this.svg.firstChild);
+        }
+        
+        // Reset zoom and pan
+        this.zoom = 1;
+        this.pan = { x: 0, y: 0 };
+        this.updateTransform();
+        
+        // Update minimap if it exists
+        if (this.updateMinimap) {
+            this.updateMinimap();
+        }
+    }
+
+    /**
      * Setup canvas interactions
      */
     setupCanvas() {

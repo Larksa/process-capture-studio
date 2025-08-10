@@ -379,12 +379,29 @@ class ActivityTracker {
         let contextInfo = '';
         if (activity.application && activity.application !== 'Unknown') {
             contextInfo = `<div class="app-context">📍 ${activity.application}`;
-            if (activity.browserContext?.url) {
+            
+            // Add page context if available (from Playwright)
+            if (activity.pageContext?.url) {
+                contextInfo += ` - ${activity.pageContext.url}`;
+            } else if (activity.browserContext?.url) {
                 contextInfo += ` - ${activity.browserContext.url}`;
             } else if (activity.window && activity.window !== 'Unknown') {
                 contextInfo += ` - ${activity.window}`;
             }
             contextInfo += '</div>';
+        }
+        
+        // Add element selector info if available (from Playwright)
+        let selectorInfo = '';
+        if (activity.element?.selectors) {
+            const selectors = activity.element.selectors;
+            selectorInfo = '<div class="selector-info">';
+            if (selectors.id) {
+                selectorInfo += `<span class="selector-id">${selectors.id}</span>`;
+            } else if (selectors.css) {
+                selectorInfo += `<span class="selector-css">${selectors.css}</span>`;
+            }
+            selectorInfo += '</div>';
         }
         
         entry.innerHTML = `
@@ -393,6 +410,7 @@ class ActivityTracker {
                 ${icon} ${description}
             </div>
             ${contextInfo}
+            ${selectorInfo}
             ${activity.details ? `<div class="details">${activity.details}</div>` : ''}
         `;
         
@@ -436,13 +454,27 @@ class ActivityTracker {
     getActivityDescription(activity) {
         switch (activity.type) {
             case 'click':
-                // Enhanced description for clicks with browser context
-                if (activity.browserContext?.pageTitle) {
+                // Use rich element context from Playwright if available
+                if (activity.element?.selectors?.text) {
+                    // Truncate long text
+                    const text = activity.element.selectors.text;
+                    const displayText = text.length > 50 ? text.substring(0, 47) + '...' : text;
+                    return `Clicked "${displayText}"`;
+                } else if (activity.element?.tag) {
+                    // Use element tag and type
+                    let desc = `Clicked <${activity.element.tag}>`;
+                    if (activity.element.type) {
+                        desc += ` (${activity.element.type})`;
+                    }
+                    if (activity.element.name) {
+                        desc += ` "${activity.element.name}"`;
+                    }
+                    return desc;
+                } else if (activity.browserContext?.pageTitle) {
                     return `Clicked in "${activity.browserContext.pageTitle}"`;
-                } else if (activity.element?.text) {
-                    return `Clicked "${activity.element.text}"`;
-                } else if (activity.element?.tagName) {
-                    return `Clicked ${activity.element.tagName} element`;
+                } else if (activity.description) {
+                    // Use pre-built description from capture service
+                    return activity.description;
                 } else {
                     return 'Clicked';
                 }
@@ -451,7 +483,7 @@ class ActivityTracker {
                 return `Pressed ${activity.key}`;
             
             case 'input':
-                return `Entered text in ${activity.field.label || activity.field.name || 'field'}`;
+                return `Entered text in ${activity.field?.label || activity.field?.name || 'field'}`;
             
             case 'navigation':
                 return `Navigated to ${new URL(activity.url).pathname}`;
@@ -464,6 +496,9 @@ class ActivityTracker {
             
             case 'app_switch':
                 return `Switched to ${activity.to}`;
+            
+            case 'mark_important':
+                return 'Marked as important step';
             
             default:
                 return activity.type;

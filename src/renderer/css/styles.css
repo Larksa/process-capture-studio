@@ -247,6 +247,26 @@ body {
     font-style: italic;
 }
 
+.activity-entry .selector-info {
+    font-size: 11px;
+    color: #9c88ff;
+    margin-top: 4px;
+    font-family: 'Courier New', monospace;
+    padding: 4px 8px;
+    background: rgba(156, 136, 255, 0.1);
+    border-radius: 4px;
+    overflow-x: auto;
+}
+
+.activity-entry .selector-id {
+    color: #ffd93d;
+    font-weight: bold;
+}
+
+.activity-entry .selector-css {
+    color: #6bcf7f;
+}
+
 .panel-footer {
     padding: 16px;
     background: #2d2d2d;
@@ -539,6 +559,17 @@ body {
 
 .btn:hover {
     background: #f5f5f5;
+}
+
+.btn.btn-danger {
+    background: linear-gradient(135deg, #f56565 0%, #dc2626 100%);
+    color: white;
+    border: none;
+}
+
+.btn.btn-danger:hover {
+    background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%);
+    transform: translateY(-1px);
 }
 
 .btn-primary {
