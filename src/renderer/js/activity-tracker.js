@@ -319,6 +319,30 @@ class ActivityTracker {
     }
 
     /**
+     * Get relevant attributes from element
+     */
+    getRelevantAttributes(element) {
+        const relevantAttrs = ['href', 'src', 'name', 'type', 'value', 'placeholder', 
+                               'data-testid', 'data-id', 'aria-label', 'role'];
+        const attributes = {};
+        
+        for (const attr of relevantAttrs) {
+            const value = element.getAttribute(attr);
+            if (value) {
+                // Don't store sensitive values
+                if (attr === 'value' && (element.type === 'password' || 
+                    element.getAttribute('data-sensitive'))) {
+                    attributes[attr] = '[PROTECTED]';
+                } else {
+                    attributes[attr] = value;
+                }
+            }
+        }
+        
+        return attributes;
+    }
+
+    /**
      * Add activity to feed and buffer
      */
     addActivity(activity) {

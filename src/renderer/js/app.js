@@ -147,14 +147,14 @@ class ProcessCaptureApp {
      * Save dialog state before hiding
      */
     saveDialogState() {
-        const actionType = document.getElementById('action-type').value;
-        const actionReason = document.getElementById('action-reason').value;
-        const dataSource = document.getElementById('data-source').value;
+        const actionType = document.getElementById('action-type')?.value;
+        const stepLogic = document.getElementById('step-logic')?.value; // Fixed: was 'action-reason'
+        const dataSource = document.getElementById('data-source')?.value;
         
-        if (actionType || actionReason || dataSource) {
+        if (actionType || stepLogic || dataSource) {
             this.pendingDialogRestore = {
                 actionType,
-                actionReason,
+                stepLogic,
                 dataSource
             };
         }
@@ -167,11 +167,15 @@ class ProcessCaptureApp {
         if (!this.pendingDialogRestore) return;
         
         const dialog = document.getElementById('step-dialog');
-        document.getElementById('action-type').value = this.pendingDialogRestore.actionType || '';
-        document.getElementById('action-reason').value = this.pendingDialogRestore.actionReason || '';
-        document.getElementById('data-source').value = this.pendingDialogRestore.dataSource || '';
+        const actionType = document.getElementById('action-type');
+        const stepLogic = document.getElementById('step-logic'); // Fixed: was 'action-reason'
+        const dataSource = document.getElementById('data-source');
         
-        dialog.classList.remove('hidden');
+        if (actionType) actionType.value = this.pendingDialogRestore.actionType || '';
+        if (stepLogic) stepLogic.value = this.pendingDialogRestore.stepLogic || '';
+        if (dataSource) dataSource.value = this.pendingDialogRestore.dataSource || '';
+        
+        if (dialog) dialog.classList.remove('hidden');
         this.pendingDialogRestore = null;
     }
     
@@ -383,9 +387,9 @@ class ProcessCaptureApp {
      * Capture step from dialog
      */
     captureStepFromDialog() {
-        const actionType = document.getElementById('action-type').value;
-        const logic = document.getElementById('step-logic').value;
-        const dataSource = document.getElementById('data-source').value;
+        const actionType = document.getElementById('action-type')?.value || 'custom';
+        const logic = document.getElementById('step-logic')?.value || '';
+        const dataSource = document.getElementById('data-source')?.value || '';
         
         // Build node data
         const nodeData = {

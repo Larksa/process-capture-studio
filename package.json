@@ -25,17 +25,15 @@
     "test": "echo 'Tests coming soon'"
   },
   "dependencies": {
-    "active-win": "^8.1.0"
+    "active-win": "^8.1.0",
+    "uiohook-napi": "^1.5.4"
   },
   "devDependencies": {
+    "@electron/rebuild": "^3.3.0",
     "electron": "^27.0.0",
     "electron-builder": "^24.6.4",
     "electron-rebuild": "^3.2.9",
-    "@electron/rebuild": "^3.3.0",
     "electron-reloader": "^1.2.3"
-  },
-  "optionalDependencies": {
-    "iohook": "^0.9.3"
   },
   "build": {
     "productName": "Process Capture Studio",
@@ -60,11 +58,17 @@
       "target": [
         {
           "target": "dmg",
-          "arch": ["x64", "arm64"]
+          "arch": [
+            "x64",
+            "arm64"
+          ]
         },
         {
           "target": "zip",
-          "arch": ["x64", "arm64"]
+          "arch": [
+            "x64",
+            "arm64"
+          ]
         }
       ]
     },
@@ -73,11 +77,15 @@
       "target": [
         {
           "target": "portable",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         },
         {
           "target": "nsis",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         }
       ]
     },
@@ -95,11 +103,15 @@
       "target": [
         {
           "target": "AppImage",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         },
         {
           "target": "deb",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         }
       ]
     },

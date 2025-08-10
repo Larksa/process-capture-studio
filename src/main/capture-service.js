@@ -1,6 +1,7 @@
 /**
  * Capture Service - System-wide event capture
- * Integrates with iohook for global keystroke and mouse capture
+ * Integrates with uiohook-napi for global keystroke and mouse capture
+ * Compatible with modern Electron versions (27+)
  */
 
 const EventEmitter = require('events');
@@ -30,15 +31,15 @@ class CaptureService extends EventEmitter {
      */
     async initialize() {
         try {
-            // Try to load iohook
-            // Note: iohook requires native compilation for each platform
-            // It may need to be rebuilt with electron-rebuild
+            // Try to load uiohook-napi (modern replacement for iohook)
+            // Compatible with Electron 27 and modern Node.js versions
             try {
-                this.ioHook = require('iohook');
-                console.log('iohook loaded successfully');
+                const { uIOhook } = require('uiohook-napi');
+                this.ioHook = uIOhook;
+                console.log('uiohook-napi loaded successfully');
                 this.setupIoHook();
             } catch (error) {
-                console.warn('iohook not available - system-wide capture disabled', error);
+                console.warn('uiohook-napi not available - system-wide capture disabled', error);
                 // Fall back to browser-only capture
                 this.useFallbackCapture();
             }
