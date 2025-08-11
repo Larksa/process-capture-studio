@@ -6,8 +6,6 @@
 
 const EventEmitter = require('events');
 const activeWin = require('active-win');
-// Temporarily disable browser context to avoid async issues
-// const BrowserContextService = require('./browser-context-service');
 
 class CaptureService extends EventEmitter {
     constructor() {
@@ -21,7 +19,7 @@ class CaptureService extends EventEmitter {
         this.mainWindowBounds = null; // Track main window position
         this.captureInternalClicks = false; // Filter internal clicks by default
         this.isMarkingStep = false; // Flag to prevent recording during mark action
-        // this.browserContext = new BrowserContextService(); // Browser context capture - DISABLED for stability
+        this.browserContextGetter = null; // Function to get browser context from worker
         this.importantPatterns = {
             copy: /ctrl\+c|cmd\+c/i,
             paste: /ctrl\+v|cmd\+v/i,
@@ -65,23 +63,8 @@ class CaptureService extends EventEmitter {
                 await this.checkMacOSPermissions();
             }
             
-            // Browser context temporarily disabled to avoid Electron async issues
-            // TODO: Move browser context to a separate process or use IPC
-            /*
-            setTimeout(async () => {
-                try {
-                    const connected = await this.browserContext.connectToExistingBrowser();
-                    if (connected) {
-                        console.log('Connected to browser for enhanced context capture');
-                        await this.browserContext.monitorPages();
-                    } else {
-                        console.log('No browser connection - basic capture only');
-                    }
-                } catch (error) {
-                    console.warn('Browser context service initialization failed:', error);
-                }
-            }, 1000);
-            */
+            // Browser context is now handled via separate worker process
+            console.log('Browser context will be enriched via worker process');
             
             // Try to load uiohook-napi (modern replacement for iohook)
             // Compatible with Electron 27 and modern Node.js versions
@@ -351,21 +334,20 @@ class CaptureService extends EventEmitter {
         
         // Try to get enhanced browser context if it's a browser
         if (this.isBrowser(context.application)) {
-            // Try to get element context from browser using Playwright
-            if (this.browserContext && this.browserContext.isConnected && this.browserContext.activePage) {
+            // Try to get element context from browser using worker process
+            if (this.browserContextGetter) {
                 try {
-                    // Get element at click position
-                    const element = await this.browserContext.getElementAtPoint(event.x, event.y);
-                    if (element) {
-                        activity.element = element;
+                    const browserData = await this.browserContextGetter(event.x, event.y);
+                    
+                    if (browserData && browserData.element) {
+                        activity.element = browserData.element;
                         
-                        // Get page context
-                        const pageContext = await this.browserContext.getPageContext();
-                        if (pageContext) {
-                            activity.pageContext = pageContext;
+                        if (browserData.pageContext) {
+                            activity.pageContext = browserData.pageContext;
                         }
                         
                         // Update description with rich context
+                        const element = browserData.element;
                         if (element.selectors?.text) {
                             activity.description = `Clicked "${element.selectors.text}" in ${context.application}`;
                         } else if (element.tag) {
@@ -373,12 +355,18 @@ class CaptureService extends EventEmitter {
                         }
                         
                         // Add URL to description if available
-                        if (pageContext?.url) {
-                            activity.description += ` - ${pageContext.url}`;
+                        if (browserData.pageContext?.url) {
+                            activity.description += ` - ${browserData.pageContext.url}`;
                         }
+                        
+                        console.log('Enhanced browser context captured:', {
+                            selector: element.selectors?.css,
+                            text: element.selectors?.text,
+                            url: browserData.pageContext?.url
+                        });
                     }
                 } catch (error) {
-                    this.safeLog('Failed to get browser element context:', error.message);
+                    this.safeLog('Failed to get browser element context from worker:', error.message);
                 }
             }
             
@@ -470,6 +458,14 @@ class CaptureService extends EventEmitter {
     setMainWindowBounds(bounds) {
         this.mainWindowBounds = bounds;
         this.safeLog('Updated main window bounds:', bounds);
+    }
+
+    /**
+     * Set browser context getter function
+     */
+    setBrowserContextGetter(getter) {
+        this.browserContextGetter = getter;
+        console.log('Browser context getter configured');
     }
 
     /**
@@ -678,14 +674,8 @@ class CaptureService extends EventEmitter {
      * Cleanup on exit
      */
     async cleanup() {
-        // Clean up browser context
-        if (this.browserContext) {
-            try {
-                await this.browserContext.disconnect();
-            } catch (error) {
-                console.error('Error cleaning up browser context:', error);
-            }
-        }
+        // Browser context is now handled by worker process
+        // No cleanup needed here
         
         // Clean up iohook
         if (this.ioHook) {

@@ -5,6 +5,7 @@
 
 const { app, BrowserWindow, ipcMain, globalShortcut, Menu, Tray, screen, dialog } = require('electron');
 const path = require('path');
+const { fork } = require('child_process');
 const CaptureService = require('./capture-service');
 const WindowManager = require('./window-manager');
 const MarkBeforeHandler = require('./mark-before-handler');
@@ -15,6 +16,8 @@ let captureService = null;
 let windowManager = null;
 let markBeforeHandler = null;
 let tray = null;
+let browserWorker = null;
+let browserWorkerRequests = new Map(); // Track pending requests
 
 // Single instance lock
 const gotTheLock = app.requestSingleInstanceLock();
@@ -108,6 +111,9 @@ function initializeServices() {
         markBeforeHandler.init(mainWindow);
     }
     
+    // Initialize browser context worker
+    initializeBrowserWorker();
+    
     // Start capture service
     captureService.initialize();
     
@@ -148,6 +154,107 @@ function updateWindowBounds() {
     if (mainWindow && captureService) {
         const bounds = mainWindow.getBounds();
         captureService.setMainWindowBounds(bounds);
+    }
+}
+
+/**
+ * Initialize browser context worker process
+ */
+function initializeBrowserWorker() {
+    console.log('[Main] Initializing browser context worker...');
+    
+    // Fork the browser worker process
+    browserWorker = fork(path.join(__dirname, 'browser-context-worker.js'), [], {
+        silent: false, // Show worker console output in dev mode
+        env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' }
+    });
+    
+    // Handle messages from worker
+    browserWorker.on('message', (message) => {
+        const { id, type, success, data, error, event } = message;
+        
+        if (type === 'response') {
+            // Handle response to a request
+            const callback = browserWorkerRequests.get(id);
+            if (callback) {
+                browserWorkerRequests.delete(id);
+                if (success) {
+                    callback.resolve(data);
+                } else {
+                    callback.reject(new Error(error));
+                }
+            }
+        } else if (type === 'event') {
+            // Handle worker events
+            console.log(`[Main] Browser worker event: ${event}`, data);
+            
+            // Notify renderer of important events
+            if (mainWindow && (event === 'reconnected' || event === 'connection_failed')) {
+                mainWindow.webContents.send('browser:status', { event, data });
+            }
+        }
+    });
+    
+    // Handle worker errors
+    browserWorker.on('error', (error) => {
+        console.error('[Main] Browser worker error:', error);
+    });
+    
+    // Handle worker exit
+    browserWorker.on('exit', (code, signal) => {
+        console.log(`[Main] Browser worker exited with code ${code} and signal ${signal}`);
+        browserWorker = null;
+        
+        // Attempt to restart after a delay
+        setTimeout(() => {
+            if (!browserWorker && !app.isQuitting) {
+                console.log('[Main] Attempting to restart browser worker...');
+                initializeBrowserWorker();
+            }
+        }, 5000);
+    });
+    
+    // Pass browser context getter to capture service
+    if (captureService) {
+        captureService.setBrowserContextGetter(getBrowserElementAtPoint);
+    }
+}
+
+/**
+ * Send request to browser worker
+ */
+function sendToBrowserWorker(type, data = {}) {
+    return new Promise((resolve, reject) => {
+        if (!browserWorker) {
+            reject(new Error('Browser worker not initialized'));
+            return;
+        }
+        
+        const id = Date.now() + Math.random();
+        browserWorkerRequests.set(id, { resolve, reject });
+        
+        // Set timeout for request
+        setTimeout(() => {
+            if (browserWorkerRequests.has(id)) {
+                browserWorkerRequests.delete(id);
+                reject(new Error('Browser worker request timeout'));
+            }
+        }, 5000);
+        
+        browserWorker.send({ id, type, data });
+    });
+}
+
+/**
+ * Get browser element at specific coordinates
+ */
+async function getBrowserElementAtPoint(x, y) {
+    try {
+        const result = await sendToBrowserWorker('getElementAtPoint', { x, y });
+        return result;
+    } catch (error) {
+        console.error('[Main] Failed to get browser element:', error.message);
+        return null;
     }
 }
 
@@ -308,6 +415,86 @@ function setupIpcHandlers() {
         
         return null;
     });
+    
+    // Launch capture browser
+    ipcMain.handle('browser:launch-capture', async () => {
+        const { exec } = require('child_process');
+        const util = require('util');
+        const execPromise = util.promisify(exec);
+        
+        try {
+            console.log('[Main] Launching capture browser...');
+            
+            // First, kill any existing Chrome instances with debugging port
+            try {
+                await execPromise('pkill -f "remote-debugging-port=9222"');
+                console.log('[Main] Killed existing debug browser');
+            } catch (e) {
+                // Ignore if no process to kill
+            }
+            
+            // Wait a moment for process to fully terminate
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            
+            // Launch Chrome with debugging port
+            let command;
+            if (process.platform === 'darwin') {
+                // macOS
+                command = 'open -a "Google Chrome" --args --remote-debugging-port=9222 --user-data-dir=/tmp/chrome-capture-profile --no-first-run --no-default-browser-check';
+            } else if (process.platform === 'win32') {
+                // Windows
+                command = 'start chrome --remote-debugging-port=9222 --user-data-dir=%TEMP%\\chrome-capture-profile --no-first-run --no-default-browser-check';
+            } else {
+                // Linux
+                command = 'google-chrome --remote-debugging-port=9222 --user-data-dir=/tmp/chrome-capture-profile --no-first-run --no-default-browser-check &';
+            }
+            
+            await execPromise(command);
+            console.log('[Main] Chrome launched with debugging port');
+            
+            // Wait for Chrome to start and debugging port to be available
+            await new Promise(resolve => setTimeout(resolve, 2000));
+            
+            // Notify browser worker to reconnect
+            if (browserWorker) {
+                browserWorker.send({ type: 'connect', data: {} });
+            }
+            
+            // Update UI with connection status
+            setTimeout(async () => {
+                if (browserWorker) {
+                    const status = await sendToBrowserWorker('status');
+                    mainWindow.webContents.send('browser:status-update', {
+                        connected: status.isConnected,
+                        message: status.isConnected ? 'Enhanced capture ready' : 'Connecting...'
+                    });
+                }
+            }, 3000);
+            
+            return { success: true, message: 'Capture browser launched' };
+            
+        } catch (error) {
+            console.error('[Main] Failed to launch capture browser:', error);
+            return { success: false, message: error.message };
+        }
+    });
+    
+    // Get browser connection status
+    ipcMain.handle('browser:get-status', async () => {
+        if (!browserWorker) {
+            return { connected: false, message: 'Worker not initialized' };
+        }
+        
+        try {
+            const status = await sendToBrowserWorker('status');
+            return {
+                connected: status.isConnected,
+                message: status.isConnected ? 'Enhanced capture active' : 'Not connected'
+            };
+        } catch (error) {
+            return { connected: false, message: error.message };
+        }
+    });
 }
 
 /**
@@ -402,7 +589,16 @@ app.on('window-all-closed', () => {
 
 // Before quit
 app.on('before-quit', () => {
-    // Cleanup
+    // Mark app as quitting
+    app.isQuitting = true;
+    
+    // Cleanup browser worker
+    if (browserWorker) {
+        browserWorker.kill('SIGTERM');
+        browserWorker = null;
+    }
+    
+    // Cleanup capture service
     if (captureService) {
         captureService.cleanup();
     }
@@ -414,6 +610,11 @@ app.on('before-quit', () => {
 // Will quit
 app.on('will-quit', () => {
     // Final cleanup
+    if (browserWorker) {
+        browserWorker.kill('SIGKILL');
+        browserWorker = null;
+    }
+    
     if (captureService) {
         captureService.cleanup();
     }

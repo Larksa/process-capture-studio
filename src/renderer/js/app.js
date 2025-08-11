@@ -129,6 +129,8 @@ class ProcessCaptureApp {
             startCapture: document.getElementById('start-capture'),
             pauseCapture: document.getElementById('pause-capture'),
             stopCapture: document.getElementById('stop-capture'),
+            launchBrowser: document.getElementById('launch-browser'),
+            browserStatus: document.getElementById('browser-status-text'),
             saveProcess: document.getElementById('save-process'),
             clearCapture: document.getElementById('clear-capture'),
             refreshApp: document.getElementById('refresh-app'),
@@ -165,6 +167,44 @@ class ProcessCaptureApp {
         if (this.elements.stopCapture) {
             this.elements.stopCapture.addEventListener('click', () => {
                 this.stopCapture();
+            });
+        }
+        
+        // Launch capture browser button
+        if (this.elements.launchBrowser) {
+            this.elements.launchBrowser.addEventListener('click', async () => {
+                console.log('Launching capture browser...');
+                this.elements.launchBrowser.disabled = true;
+                this.elements.launchBrowser.textContent = '⏳ Launching...';
+                
+                try {
+                    const result = await window.electronAPI.launchCaptureBrowser();
+                    if (result.success) {
+                        console.log('Capture browser launched successfully');
+                        this.elements.launchBrowser.textContent = '✅ Browser Launched';
+                        
+                        // Check status after a moment
+                        setTimeout(async () => {
+                            await this.checkBrowserStatus();
+                            this.elements.launchBrowser.textContent = '🌐 Launch Capture Browser';
+                            this.elements.launchBrowser.disabled = false;
+                        }, 3000);
+                    } else {
+                        console.error('Failed to launch browser:', result.message);
+                        this.elements.launchBrowser.textContent = '❌ Launch Failed';
+                        setTimeout(() => {
+                            this.elements.launchBrowser.textContent = '🌐 Launch Capture Browser';
+                            this.elements.launchBrowser.disabled = false;
+                        }, 2000);
+                    }
+                } catch (error) {
+                    console.error('Error launching browser:', error);
+                    this.elements.launchBrowser.textContent = '❌ Error';
+                    setTimeout(() => {
+                        this.elements.launchBrowser.textContent = '🌐 Launch Capture Browser';
+                        this.elements.launchBrowser.disabled = false;
+                    }, 2000);
+                }
             });
         }
         
@@ -404,6 +444,15 @@ class ProcessCaptureApp {
                 this.addChatMessage('ai', `Switched to ${activity.application || 'unknown app'}`);
             }
         });
+        
+        // Listen for browser status updates
+        window.electronAPI.onBrowserStatusUpdate((status) => {
+            console.log('Browser status update:', status);
+            this.updateBrowserStatus(status);
+        });
+        
+        // Check initial browser status
+        this.checkBrowserStatus();
 
         // Listen for mark mode events
         window.electronAPI.onMarkModeStarted((data) => {
@@ -1837,6 +1886,36 @@ class ProcessCaptureApp {
         console.log('Capture stopped');
     }
 
+    /**
+     * Check browser connection status
+     */
+    async checkBrowserStatus() {
+        if (!window.electronAPI) return;
+        
+        try {
+            const status = await window.electronAPI.getBrowserStatus();
+            this.updateBrowserStatus(status);
+        } catch (error) {
+            console.error('Error checking browser status:', error);
+            this.updateBrowserStatus({ connected: false, message: 'Error checking status' });
+        }
+    }
+    
+    /**
+     * Update browser status display
+     */
+    updateBrowserStatus(status) {
+        if (this.elements.browserStatus) {
+            if (status.connected) {
+                this.elements.browserStatus.textContent = '🟢 Browser: Enhanced Capture Active';
+                this.elements.browserStatus.style.color = '#28a745';
+            } else {
+                this.elements.browserStatus.textContent = '🔴 Browser: Basic Capture Only';
+                this.elements.browserStatus.style.color = '#dc3545';
+            }
+        }
+    }
+    
     /**
      * Test the clear functionality
      */

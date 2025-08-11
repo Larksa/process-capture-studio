@@ -51,6 +51,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
     // File operations
     saveFile: (data) => ipcRenderer.invoke('export:save-file', data),
     
+    // Browser capture controls
+    launchCaptureBrowser: () => ipcRenderer.invoke('browser:launch-capture'),
+    getBrowserStatus: () => ipcRenderer.invoke('browser:get-status'),
+    onBrowserStatusUpdate: (callback) => {
+        ipcRenderer.on('browser:status-update', (event, data) => callback(data));
+    },
+    
     // Platform detection
     platform: process.platform,
     

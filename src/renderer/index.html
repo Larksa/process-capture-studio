@@ -37,12 +37,16 @@
                     <button id="start-capture" class="btn btn-primary">Start Capture</button>
                     <button id="pause-capture" class="btn" disabled>Pause</button>
                     <button id="stop-capture" class="btn" disabled>Stop</button>
+                    <button id="launch-browser" class="btn" title="Launch browser with enhanced capture">🌐 Launch Capture Browser</button>
                     <button id="save-process" class="btn btn-success" title="Save current process">💾 Save</button>
                     <button id="clear-capture" class="btn btn-danger" title="Clear all captured data">🗑️ Clear</button>
                     <button id="refresh-app" class="btn" title="Refresh the application">🔄 Refresh</button>
                     <div class="capture-indicator" id="capture-status">
                         <span class="status-dot"></span>
                         <span class="status-text">Ready</span>
+                    </div>
+                    <div class="browser-status" id="browser-status" style="margin-left: 10px; font-size: 12px;">
+                        <span id="browser-status-text">Browser: Not Connected</span>
                     </div>
                 </div>
             </div>
