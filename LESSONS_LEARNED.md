@@ -161,4 +161,50 @@ Traditional RPA tools (UiPath, Blue Prism) are black boxes. Our approach:
 - **Flexible**: Export to any format
 - **Developer-friendly**: Git-compatible text files
 - **AI-ready**: Captures the "why" for future AI processing
+
+## 🚀 Phase 0/1 Implementation Insights (Aug 11, 2025 Evening)
+
+### Intent-First Revolution
+- **Game Changer**: Asking "What are you about to do?" BEFORE capture
+- **Result**: Clean, purposeful data instead of raw event stream
+- **User Experience**: Immediate dialog on Cmd+Shift+M improves clarity
+
+### Hybrid Event Storage Success
+- **Dual Structure Works**: Raw events + smart sub-steps = perfect balance
+- **Auto-Detection Rules**: Page nav, 3+ sec pauses, form submissions
+- **Hierarchical Display**: Consultants can see forest AND trees
+
+### Critical Bug Fixes That Unlocked Everything
+1. **ProcessEngine.handleActivity**: Was missing, breaking data flow
+2. **Data Property Preservation**: Events weren't being stored in nodes
+3. **Browser Context Worker**: CDP integration now captures full DOM
+
+### Architecture Decisions Validated
+- **Worker Process for CDP**: Solved Electron async conflicts
+- **30-Second Window**: Good default, but needs completion options
+- **Smart Detection**: Sub-step boundaries mostly correct automatically
+
+### What We Learned About User Flow
+- **Launch Browser First**: Must open Chrome with debugging port
+- **Then Start Capture**: General recording begins
+- **Then Cmd+Shift+M**: Focused intent capture
+- **Process Order Matters**: Users need clear visual indicators
+
+### Unexpected Discoveries
+- **Cookies Preserved**: Browser remembers login between sessions!
+- **Negative Y Coordinates**: Window positioning can be confusing
+- **Ember IDs Work**: Dynamic IDs like #ember1283 are usable
+- **Text Extraction**: We capture button text perfectly
+
+### Next Critical Features
+1. **Completion Options**: Done/Extend/Review after 30 seconds
+2. **Export Generation**: Loop through events array for code generation
+3. **Sub-Step Editing**: Let users adjust auto-detected boundaries
+4. **Visual Timer**: Show countdown during capture
+
+### Performance Observations
+- **1,910 Lines Added**: Major architecture change successful
+- **15 Files Modified**: Clean separation of concerns
+- **5 Events Captured**: In ~20 seconds of real usage
+- **Sub-Step Detection**: Correctly identified all major actions
 EOF < /dev/null

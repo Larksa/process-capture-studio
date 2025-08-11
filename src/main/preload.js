@@ -35,6 +35,23 @@ contextBridge.exposeInMainWorld('electronAPI', {
     },
     getMarkStatus: () => ipcRenderer.invoke('mark:status'),
     
+    // Inactivity detection events
+    onMarkInactivityDetected: (callback) => {
+        ipcRenderer.on('mark:inactivity-detected', (event, data) => callback(data));
+    },
+    handleInactivityResponse: (response, details) => {
+        return ipcRenderer.invoke('mark-before:inactivity-response', { response, details });
+    },
+    onSideQuestStarted: (callback) => {
+        ipcRenderer.on('mark:side-quest-started', (event, data) => callback(data));
+    },
+    onSideQuestCompleted: (callback) => {
+        ipcRenderer.on('mark:side-quest-completed', (event, data) => callback(data));
+    },
+    onCaptureResumed: (callback) => {
+        ipcRenderer.on('mark:capture-resumed', (event) => callback());
+    },
+    
     // Generic invoke for new handlers
     invoke: (channel, data) => ipcRenderer.invoke(channel, data),
     

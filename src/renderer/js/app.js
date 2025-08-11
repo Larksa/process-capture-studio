@@ -473,6 +473,28 @@ class ProcessCaptureApp {
             this.showIntentDialog();
         });
 
+        // Listen for inactivity detection during Mark Before
+        window.electronAPI.onMarkInactivityDetected((data) => {
+            console.log('[App] Inactivity detected during Mark Before:', data);
+            this.showInactivityDialog(data);
+        });
+        
+        // Listen for side quest events
+        window.electronAPI.onSideQuestStarted((sideQuest) => {
+            console.log('[App] Side quest started:', sideQuest);
+            this.updateMarkModeStatus({ sideQuest: true, description: sideQuest.description });
+        });
+        
+        window.electronAPI.onSideQuestCompleted((data) => {
+            console.log('[App] Side quest completed:', data);
+            this.updateMarkModeStatus({ sideQuest: false });
+        });
+        
+        window.electronAPI.onCaptureResumed(() => {
+            console.log('[App] Capture resumed after pause');
+            this.updateMarkModeStatus({ paused: false });
+        });
+
         // Listen for global shortcuts - Mark Before pattern
         window.electronAPI.onShortcut('mark-important', () => {
             this.startMarkMode();
@@ -944,7 +966,7 @@ class ProcessCaptureApp {
                     <input type="text" id="intent-description" class="form-input" 
                            placeholder="e.g., Create ActiveCampaign automation" autofocus>
                     <small style="color: #666; display: block; margin-top: 5px;">
-                        After clicking Start, you'll have 30 seconds to perform the action
+                        No time limit - capture will continue until you stop it
                     </small>
                 </div>
                 
@@ -1023,6 +1045,167 @@ class ProcessCaptureApp {
     startMarkMode() {
         // Now this shows the intent dialog
         this.showIntentDialog();
+    }
+    
+    /**
+     * Show inactivity dialog when no activity detected
+     */
+    showInactivityDialog(data) {
+        // Remove any existing dialog
+        const existingDialog = document.querySelector('.inactivity-dialog');
+        if (existingDialog) {
+            existingDialog.remove();
+        }
+        
+        // Create inactivity dialog
+        const dialog = document.createElement('div');
+        dialog.className = 'inactivity-dialog mark-completed-dialog'; // Reuse existing styles
+        dialog.style.zIndex = '10000'; // Ensure it's on top
+        
+        const minutes = Math.floor(data.duration / 60000);
+        const seconds = Math.floor((data.duration % 60000) / 1000);
+        const timeStr = minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
+        
+        dialog.innerHTML = `
+            <div class="mark-completed-header" style="background: #ff9800;">
+                <span class="mark-completed-icon">⏸️</span>
+                <span class="mark-completed-title">Capture Paused - No Activity Detected</span>
+            </div>
+            
+            <div class="mark-completed-form">
+                <div style="margin-bottom: 15px; color: #666;">
+                    <p>No activity for 30 seconds. What would you like to do?</p>
+                    <p style="font-size: 12px; margin-top: 5px;">
+                        Captured ${data.eventCount} events over ${timeStr}
+                    </p>
+                </div>
+                
+                <div class="inactivity-options" style="display: flex; flex-direction: column; gap: 10px;">
+                    <button class="option-btn looking-btn" style="padding: 15px; text-align: left; border: 1px solid #ddd; border-radius: 5px; cursor: pointer; background: white;">
+                        <div style="display: flex; align-items: center;">
+                            <span style="font-size: 24px; margin-right: 10px;">🔍</span>
+                            <div>
+                                <strong>I'm looking for something</strong>
+                                <div style="font-size: 12px; color: #666;">Pause while I search for information</div>
+                            </div>
+                        </div>
+                    </button>
+                    
+                    <button class="option-btn continue-btn" style="padding: 15px; text-align: left; border: 1px solid #ddd; border-radius: 5px; cursor: pointer; background: white;">
+                        <div style="display: flex; align-items: center;">
+                            <span style="font-size: 24px; margin-right: 10px;">▶️</span>
+                            <div>
+                                <strong>Continue capturing</strong>
+                                <div style="font-size: 12px; color: #666;">I was just thinking/reading</div>
+                            </div>
+                        </div>
+                    </button>
+                    
+                    <button class="option-btn complete-btn" style="padding: 15px; text-align: left; border: 1px solid #ddd; border-radius: 5px; cursor: pointer; background: white;">
+                        <div style="display: flex; align-items: center;">
+                            <span style="font-size: 24px; margin-right: 10px;">✅</span>
+                            <div>
+                                <strong>Complete this action</strong>
+                                <div style="font-size: 12px; color: #666;">I'm done with this marked action</div>
+                            </div>
+                        </div>
+                    </button>
+                </div>
+                
+                <div id="looking-details" style="display: none; margin-top: 15px;">
+                    <label style="display: block; margin-bottom: 5px;">What are you looking for?</label>
+                    <input type="text" id="looking-for-input" class="form-input" 
+                           placeholder="e.g., Customer ID, login credentials, documentation..."
+                           style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 3px;">
+                    <button id="confirm-looking-btn" class="primary-btn" style="margin-top: 10px;">
+                        Track Side Quest
+                    </button>
+                </div>
+            </div>
+        `;
+        
+        document.body.appendChild(dialog);
+        
+        // Add hover effects
+        dialog.querySelectorAll('.option-btn').forEach(btn => {
+            btn.addEventListener('mouseenter', () => {
+                btn.style.background = '#f5f5f5';
+            });
+            btn.addEventListener('mouseleave', () => {
+                btn.style.background = 'white';
+            });
+        });
+        
+        // Handle looking for something
+        const lookingBtn = dialog.querySelector('.looking-btn');
+        const lookingDetails = dialog.querySelector('#looking-details');
+        const lookingInput = dialog.querySelector('#looking-for-input');
+        const confirmLookingBtn = dialog.querySelector('#confirm-looking-btn');
+        
+        lookingBtn.addEventListener('click', () => {
+            // Hide option buttons
+            dialog.querySelector('.inactivity-options').style.display = 'none';
+            // Show input field
+            lookingDetails.style.display = 'block';
+            lookingInput.focus();
+        });
+        
+        confirmLookingBtn.addEventListener('click', async () => {
+            const lookingFor = lookingInput.value.trim() || 'Required information';
+            
+            // Send response to main process
+            await window.electronAPI.handleInactivityResponse('looking', {
+                lookingFor: lookingFor
+            });
+            
+            // Update chat guide
+            if (this.chat) {
+                this.chat.addMessage('system', `📍 Side Quest: Looking for ${lookingFor}`);
+            }
+            
+            dialog.remove();
+        });
+        
+        // Handle continue capturing
+        dialog.querySelector('.continue-btn').addEventListener('click', async () => {
+            await window.electronAPI.handleInactivityResponse('continue');
+            dialog.remove();
+        });
+        
+        // Handle complete action
+        dialog.querySelector('.complete-btn').addEventListener('click', async () => {
+            await window.electronAPI.handleInactivityResponse('complete');
+            dialog.remove();
+        });
+        
+        // Handle Enter key in input
+        lookingInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                confirmLookingBtn.click();
+            }
+        });
+    }
+    
+    /**
+     * Update mark mode status indicator
+     */
+    updateMarkModeStatus(status) {
+        const indicator = document.getElementById('mark-mode-indicator');
+        if (!indicator) return;
+        
+        if (status.paused) {
+            indicator.style.background = '#ff9800';
+            const title = indicator.querySelector('.mark-mode-title');
+            if (title) title.textContent = 'PAUSED - Waiting for input';
+        } else if (status.sideQuest) {
+            indicator.style.background = '#2196F3';
+            const title = indicator.querySelector('.mark-mode-title');
+            if (title) title.textContent = `SIDE QUEST: ${status.description}`;
+        } else {
+            indicator.style.background = '#e91e63';
+            const title = indicator.querySelector('.mark-mode-title');
+            if (title) title.textContent = 'MARK MODE ACTIVE';
+        }
     }
     
     /**

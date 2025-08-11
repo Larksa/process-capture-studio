@@ -15,8 +15,16 @@ class MarkBeforeHandler {
     this.actionDescription = '';
     this.completionCallback = null;
     this.mainWindow = null;
-    this.captureTimeout = null;
-    this.maxCaptureDuration = 30000; // 30 seconds max
+    
+    // Inactivity detection
+    this.inactivityTimer = null;
+    this.inactivityThreshold = 30000; // 30 seconds of no activity
+    this.lastActivityTime = null;
+    this.isPaused = false;
+    
+    // Side quest tracking (what users need to find)
+    this.sideQuests = [];
+    this.currentSideQuest = null;
     
     // Action type detection patterns
     this.actionPatterns = {
@@ -38,30 +46,27 @@ class MarkBeforeHandler {
    * Start mark mode - ready to capture next action
    */
   startMarkMode(description = '') {
-    console.log('[MarkBefore] Starting mark mode...');
+    console.log('[MarkBefore] Starting mark mode with unlimited time...');
     
     this.isMarkMode = true;
     this.markStartTime = Date.now();
+    this.lastActivityTime = Date.now();
     this.capturedEvents = [];
     this.currentText = '';
     this.actionDescription = description;
+    this.isPaused = false;
+    this.sideQuests = [];
+    this.currentSideQuest = null;
     
-    // Set timeout to auto-complete after 30 seconds
-    if (this.captureTimeout) {
-      clearTimeout(this.captureTimeout);
-    }
-    this.captureTimeout = setTimeout(() => {
-      console.log('[MarkBefore] Timeout reached, auto-completing');
-      if (this.isMarkMode) {
-        this.stopMarkMode('timeout-30s');
-      }
-    }, this.maxCaptureDuration);
+    // Start inactivity detection
+    this.startInactivityDetection();
     
     // Notify renderer that mark mode is active
     if (this.mainWindow) {
       this.mainWindow.webContents.send('mark:mode-started', {
         timestamp: this.markStartTime,
-        description: this.actionDescription
+        description: this.actionDescription,
+        unlimited: true
       });
     }
     
@@ -76,10 +81,10 @@ class MarkBeforeHandler {
     
     console.log(`[MarkBefore] Stopping mark mode. Reason: ${reason}, Events: ${this.capturedEvents.length}`);
     
-    // Clear timeout
-    if (this.captureTimeout) {
-      clearTimeout(this.captureTimeout);
-      this.captureTimeout = null;
+    // Clear inactivity timer
+    if (this.inactivityTimer) {
+      clearTimeout(this.inactivityTimer);
+      this.inactivityTimer = null;
     }
     
     const duration = Date.now() - this.markStartTime;
@@ -112,6 +117,12 @@ class MarkBeforeHandler {
   processEvent(event) {
     if (!this.isMarkMode) return false;
     
+    // Don't process events if paused (waiting for user decision)
+    if (this.isPaused) {
+      console.log('[MarkBefore] Paused - ignoring event');
+      return false;
+    }
+    
     console.log('[MarkBefore] Processing event:', {
       type: event.type,
       keychar: event.keychar,
@@ -120,10 +131,15 @@ class MarkBeforeHandler {
       eventCount: this.capturedEvents.length + 1
     });
     
+    // Update activity time and restart inactivity detection
+    this.lastActivityTime = Date.now();
+    this.resetInactivityTimer();
+    
     // Store the event with all its data
     this.capturedEvents.push({
       ...event,
-      relativeTime: Date.now() - this.markStartTime
+      relativeTime: Date.now() - this.markStartTime,
+      sideQuest: this.currentSideQuest
     });
     
     // Send status update to renderer
@@ -342,7 +358,9 @@ class MarkBeforeHandler {
       duration: duration,
       completionReason: completionReason,
       events: this.capturedEvents,
-      summary: this.generateSummary(actionType)
+      summary: this.generateSummary(actionType),
+      sideQuests: this.sideQuests,
+      hadPreparationSteps: this.sideQuests.length > 0
     };
     
     // Add grouped text if we captured typing
@@ -509,6 +527,152 @@ class MarkBeforeHandler {
    */
   getEventCount() {
     return this.capturedEvents.length;
+  }
+  
+  /**
+   * Start inactivity detection
+   */
+  startInactivityDetection() {
+    this.resetInactivityTimer();
+  }
+  
+  /**
+   * Reset the inactivity timer
+   */
+  resetInactivityTimer() {
+    if (this.inactivityTimer) {
+      clearTimeout(this.inactivityTimer);
+    }
+    
+    this.inactivityTimer = setTimeout(() => {
+      this.handleInactivity();
+    }, this.inactivityThreshold);
+  }
+  
+  /**
+   * Handle inactivity - prompt user for what they're doing
+   */
+  handleInactivity() {
+    if (!this.isMarkMode || this.isPaused) return;
+    
+    console.log('[MarkBefore] Inactivity detected after 15 seconds');
+    this.isPaused = true;
+    
+    // Send pause event to renderer with options
+    if (this.mainWindow && !this.mainWindow.isDestroyed()) {
+      this.mainWindow.webContents.send('mark:inactivity-detected', {
+        duration: Date.now() - this.markStartTime,
+        eventCount: this.capturedEvents.length,
+        lastActivity: Date.now() - this.lastActivityTime,
+        options: [
+          {
+            id: 'looking',
+            label: "I'm looking for something",
+            description: "Pause capture while you search for information"
+          },
+          {
+            id: 'continue',
+            label: "Continue capturing",
+            description: "Resume capture, I was just thinking"
+          },
+          {
+            id: 'complete',
+            label: "Complete this action",
+            description: "I'm done with this marked action"
+          }
+        ]
+      });
+    }
+  }
+  
+  /**
+   * Handle user's response to inactivity prompt
+   */
+  handleInactivityResponse(response, details = {}) {
+    console.log('[MarkBefore] Handling inactivity response:', response, details);
+    
+    switch (response) {
+      case 'looking':
+        // Track what they're looking for
+        this.currentSideQuest = {
+          type: 'information-gathering',
+          description: details.lookingFor || 'Searching for required information',
+          startTime: Date.now(),
+          foundWhere: details.foundWhere || null
+        };
+        this.sideQuests.push(this.currentSideQuest);
+        
+        // Resume capture to track where they look
+        this.isPaused = false;
+        this.resetInactivityTimer();
+        
+        // Notify renderer
+        if (this.mainWindow) {
+          this.mainWindow.webContents.send('mark:side-quest-started', this.currentSideQuest);
+        }
+        break;
+        
+      case 'continue':
+        // Simply resume capture
+        this.isPaused = false;
+        this.resetInactivityTimer();
+        
+        if (this.mainWindow) {
+          this.mainWindow.webContents.send('mark:capture-resumed');
+        }
+        break;
+        
+      case 'complete':
+        // End the mark session
+        this.stopMarkMode('user-completed-after-pause');
+        break;
+        
+      default:
+        console.log('[MarkBefore] Unknown response:', response);
+        // Default to continuing
+        this.isPaused = false;
+        this.resetInactivityTimer();
+    }
+  }
+  
+  /**
+   * Complete a side quest (found what they were looking for)
+   */
+  completeSideQuest(details = {}) {
+    if (this.currentSideQuest) {
+      this.currentSideQuest.endTime = Date.now();
+      this.currentSideQuest.duration = this.currentSideQuest.endTime - this.currentSideQuest.startTime;
+      this.currentSideQuest.foundWhere = details.foundWhere || 'Unknown location';
+      this.currentSideQuest.foundWhat = details.foundWhat || 'Required information';
+      
+      console.log('[MarkBefore] Side quest completed:', this.currentSideQuest);
+      
+      // Clear current side quest
+      this.currentSideQuest = null;
+      
+      // Notify renderer
+      if (this.mainWindow) {
+        this.mainWindow.webContents.send('mark:side-quest-completed', {
+          sideQuest: this.currentSideQuest,
+          totalSideQuests: this.sideQuests.length
+        });
+      }
+    }
+  }
+  
+  /**
+   * Get current capture status
+   */
+  getStatus() {
+    return {
+      isActive: this.isMarkMode,
+      isPaused: this.isPaused,
+      duration: this.isMarkMode ? Date.now() - this.markStartTime : 0,
+      eventCount: this.capturedEvents.length,
+      hasText: this.currentText.length > 0,
+      sideQuestCount: this.sideQuests.length,
+      currentSideQuest: this.currentSideQuest
+    };
   }
 }
 

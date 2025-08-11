@@ -384,7 +384,42 @@ function setupIpcHandlers() {
             }
         });
         
-        return { success: true, message: 'Capture started for 30 seconds' };
+        return { success: true, message: 'Capture started - no time limit' };
+    });
+    
+    // Handle inactivity response from user
+    ipcMain.handle('mark-before:inactivity-response', async (event, data) => {
+        console.log('[Main] Handling inactivity response:', data.response);
+        
+        if (!markBeforeHandler) {
+            return { success: false, error: 'Handler not initialized' };
+        }
+        
+        markBeforeHandler.handleInactivityResponse(data.response, data.details);
+        
+        return { success: true };
+    });
+    
+    // Complete a side quest
+    ipcMain.handle('mark-before:complete-side-quest', async (event, data) => {
+        console.log('[Main] Completing side quest:', data);
+        
+        if (!markBeforeHandler) {
+            return { success: false, error: 'Handler not initialized' };
+        }
+        
+        markBeforeHandler.completeSideQuest(data);
+        
+        return { success: true };
+    });
+    
+    // Get mark before status
+    ipcMain.handle('mark-before:get-status', async () => {
+        if (!markBeforeHandler) {
+            return { isActive: false };
+        }
+        
+        return markBeforeHandler.getStatus();
     });
 
     // Window controls

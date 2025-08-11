@@ -82,7 +82,7 @@ class ProcessEngine {
     createNode(data) {
         const node = {
             id: data.id || generateUUID(),
-            type: data.type || 'action', // action, decision, loop, parallel, merge
+            type: data.type || 'action', // action, decision, loop, parallel, merge, preparation
             step: this.process.nodes.size + 1,
             
             // Core action data
@@ -91,6 +91,10 @@ class ProcessEngine {
                 description: data.description,
                 timestamp: data.timestamp || Date.now()
             },
+            
+            // Side quest / preparation tracking
+            sideQuests: data.sideQuests || [],
+            hadPreparationSteps: data.hadPreparationSteps || false,
             
             // UI Element data (for clicks, typing)
             // Enhanced to support CDP-captured element data
@@ -279,6 +283,45 @@ class ProcessEngine {
     }
     
     /**
+     * Create a preparation branch for side quests
+     */
+    createPreparationBranch(parentNodeId, sideQuest) {
+        console.log('[ProcessEngine] Creating preparation branch for side quest:', sideQuest);
+        
+        // Create a special preparation node
+        const prepNode = {
+            id: generateUUID(),
+            type: 'preparation',
+            action: {
+                type: 'preparation',
+                description: `Preparation: ${sideQuest.description}`,
+                timestamp: sideQuest.startTime
+            },
+            sideQuests: [sideQuest],
+            hadPreparationSteps: true,
+            metadata: {
+                duration: sideQuest.duration,
+                foundWhere: sideQuest.foundWhere,
+                foundWhat: sideQuest.foundWhat,
+                canBeAutomated: false // Usually manual steps
+            }
+        };
+        
+        // Add the preparation node
+        this.createNode(prepNode);
+        
+        // Create edge from parent to preparation node
+        if (parentNodeId) {
+            this.addEdge(parentNodeId, prepNode.id, {
+                type: 'preparation',
+                label: 'Gather information'
+            });
+        }
+        
+        return prepNode.id;
+    }
+    
+    /**
      * Mark a node as important
      */
     markNodeAsImportant(nodeId) {
@@ -364,6 +407,10 @@ class ProcessEngine {
                 return this.generateBasicMermaid();
             case 'playwright':
                 return this.generatePlaywrightCode();
+            case 'puppeteer':
+                return this.generatePuppeteerCode();
+            case 'selenium':
+                return this.generateSeleniumCode();
             case 'python':
                 return this.generatePythonCode();
             case 'documentation':
@@ -403,11 +450,32 @@ class ProcessEngine {
      * Generate Playwright automation code
      */
     generatePlaywrightCode() {
+        // Check if there are any preparation steps
+        const hasPreparationSteps = Array.from(this.process.nodes.values())
+            .some(node => node.hadPreparationSteps || node.type === 'preparation');
+        
         let code = `// Auto-generated Playwright automation
 // Process: ${this.process.name}
 // Generated: ${new Date().toISOString()}
+${hasPreparationSteps ? `
+// NOTE: This process includes preparation steps that require manual information gathering.
+// Before running this automation, ensure you have:` : ''}
+`;
 
-const { chromium } = require('playwright');
+        // List all preparation requirements
+        if (hasPreparationSteps) {
+            const prepSteps = Array.from(this.process.nodes.values())
+                .filter(node => node.sideQuests && node.sideQuests.length > 0);
+            
+            prepSteps.forEach(node => {
+                node.sideQuests.forEach(quest => {
+                    code += `//   - ${quest.description}\n`;
+                });
+            });
+            code += '\n';
+        }
+
+        code += `const { chromium } = require('playwright');
 
 async function execute${this.toCamelCase(this.process.name)}() {
     const browser = await chromium.launch({ headless: false });
@@ -440,6 +508,7 @@ execute${this.toCamelCase(this.process.name)}().catch(console.error);
         if (!element) return null;
         
         // Priority: ID > name > CSS > XPath
+        // Handle both old and new element formats
         if (element?.selectors?.id) {
             return element.selectors.id;
         }
@@ -457,6 +526,10 @@ execute${this.toCamelCase(this.process.name)}().catch(console.error);
         }
         if (element?.selectors?.xpath) {
             return `xpath=${element.selectors.xpath}`;
+        }
+        // Handle selector string directly (from browser context capture)
+        if (typeof element === 'string') {
+            return element;
         }
         
         return null;
@@ -479,6 +552,23 @@ execute${this.toCamelCase(this.process.name)}().catch(console.error);
      * Convert a single node to Playwright code
      */
     nodeToPlaywrightCode(node) {
+        // Handle preparation nodes
+        if (node.type === 'preparation') {
+            let code = `    // MANUAL PREPARATION REQUIRED\n`;
+            code += `    // ${node.action.description}\n`;
+            if (node.metadata) {
+                if (node.metadata.foundWhat) {
+                    code += `    // Need to find: ${node.metadata.foundWhat}\n`;
+                }
+                if (node.metadata.foundWhere) {
+                    code += `    // Look in: ${node.metadata.foundWhere}\n`;
+                }
+            }
+            code += `    // TODO: Add the required information as a variable or environment variable\n`;
+            code += `    const requiredInfo = process.env.REQUIRED_INFO || prompt('Enter required information:');\n\n`;
+            return code;
+        }
+        
         // Handle marked actions with multiple events
         if (node.type === 'marked-action' && node.data?.events) {
             let code = `    // Marked Action: ${node.description}\n`;
@@ -487,38 +577,69 @@ execute${this.toCamelCase(this.process.name)}().catch(console.error);
             }
             
             // Process each event in the marked action
-            node.data.events.forEach(event => {
-                if (event.type === 'click' && event.element) {
-                    const selector = this.getBestSelector(event.element);
+            let lastInputElement = null;
+            
+            node.data.events.forEach((event, index) => {
+                // Add navigation if URL changed
+                if (event.pageContext?.url && index === 0) {
+                    code += `    await page.goto('${event.pageContext.url}');\n`;
+                }
+                
+                if (event.type === 'click') {
+                    const selector = this.getBestSelector(event.element || event.selector);
                     if (selector) {
-                        code += `    await page.waitForSelector('${selector}', { state: 'visible' });\n`;
+                        code += `    await page.waitForSelector('${selector}', { state: 'visible', timeout: 10000 });\n`;
                         code += `    await page.click('${selector}');\n`;
-                        if (event.element.selectors?.text) {
-                            code += `    // Clicked: "${event.element.selectors.text}"\n`;
+                        
+                        // Add comment with element text or description
+                        const text = event.element?.text || event.element?.selectors?.text || event.text;
+                        if (text) {
+                            code += `    // Clicked: "${text.substring(0, 50)}${text.length > 50 ? '...' : ''}"\n`;
                         }
-                    } else if (event.position) {
+                        
+                        // Track if this was an input field click
+                        if (event.element?.tagName === 'INPUT' || event.element?.type === 'text' || event.element?.isInput) {
+                            lastInputElement = { selector, element: event.element };
+                        }
+                    } else if (event.x !== undefined && event.y !== undefined) {
                         code += `    // No selector available, using coordinates\n`;
-                        code += `    await page.mouse.click(${event.position.x}, ${event.position.y});\n`;
+                        code += `    await page.mouse.click(${event.x}, ${event.y});\n`;
                     }
+                    
+                    // Add small delay after clicks for page interactions
+                    code += `    await page.waitForTimeout(500);\n`;
+                    
                 } else if (event.type === 'typed_text' && event.text) {
-                    // Find the associated input field
-                    const prevClick = this.findPreviousClick(node.data.events, event);
-                    if (prevClick?.element) {
-                        const selector = this.getBestSelector(prevClick.element);
-                        if (selector) {
-                            // Check if it's a password field
-                            if (prevClick.element.type === 'password') {
-                                const envVar = (prevClick.element.name || 'password').toUpperCase();
-                                code += `    await page.fill('${selector}', process.env.${envVar} || 'your_password');\n`;
-                            } else {
-                                code += `    await page.fill('${selector}', '${event.text}');\n`;
-                            }
+                    // Use the last input element if available
+                    if (lastInputElement) {
+                        const { selector, element } = lastInputElement;
+                        
+                        // Check if it's a password field
+                        if (element?.type === 'password' || element?.name?.toLowerCase().includes('password')) {
+                            const envVar = (element.name || 'PASSWORD').toUpperCase().replace(/[^A-Z0-9_]/g, '_');
+                            code += `    await page.fill('${selector}', process.env.${envVar} || 'your_password');\n`;
+                        } else {
+                            code += `    await page.fill('${selector}', '${event.text.replace(/'/g, "\\'")}')\n`;
                         }
+                        lastInputElement = null; // Reset after use
                     } else {
-                        code += `    await page.keyboard.type('${event.text}');\n`;
+                        // Type directly if no input field was clicked
+                        code += `    await page.keyboard.type('${event.text.replace(/'/g, "\\'")}');\n`;
                     }
-                } else if (event.type === 'keystroke' && event.key) {
-                    code += `    await page.keyboard.press('${event.key}');\n`;
+                    
+                } else if (event.type === 'keystroke' || event.type === 'keydown') {
+                    // Handle special keys
+                    const key = event.key || event.keyCode;
+                    if (key === 'Enter' || key === 13) {
+                        code += `    await page.keyboard.press('Enter');\n`;
+                        code += `    await page.waitForLoadState('networkidle');\n`;
+                    } else if (key === 'Tab' || key === 9) {
+                        code += `    await page.keyboard.press('Tab');\n`;
+                    } else if (key === 'Escape' || key === 27) {
+                        code += `    await page.keyboard.press('Escape');\n`;
+                    } else if (typeof key === 'string') {
+                        code += `    await page.keyboard.press('${key}');\n`;
+                    }
                 }
             });
             
@@ -1023,6 +1144,207 @@ if __name__ == "__main__":
         }
         
         return doc;
+    }
+
+    /**
+     * Generate Puppeteer automation code
+     */
+    generatePuppeteerCode() {
+        let code = `// Auto-generated Puppeteer automation
+// Process: ${this.process.name}
+// Generated: ${new Date().toISOString()}
+
+const puppeteer = require('puppeteer');
+
+(async () => {
+    const browser = await puppeteer.launch({ 
+        headless: false,
+        defaultViewport: null
+    });
+    const page = await browser.newPage();
+    
+`;
+        
+        const sortedNodes = this.topologicalSort();
+        
+        for (const node of sortedNodes) {
+            code += this.nodeToPuppeteerCode(node);
+        }
+        
+        code += `
+    await browser.close();
+})();
+`;
+        
+        return code;
+    }
+    
+    /**
+     * Convert node to Puppeteer code
+     */
+    nodeToPuppeteerCode(node) {
+        // Handle marked actions with multiple events
+        if (node.type === 'marked-action' && node.data?.events) {
+            let code = `    // Marked Action: ${node.description}\n`;
+            let lastInputElement = null;
+            
+            node.data.events.forEach((event, index) => {
+                if (event.pageContext?.url && index === 0) {
+                    code += `    await page.goto('${event.pageContext.url}', { waitUntil: 'networkidle2' });\n`;
+                }
+                
+                if (event.type === 'click') {
+                    const selector = this.getBestSelector(event.element || event.selector);
+                    if (selector) {
+                        code += `    await page.waitForSelector('${selector}', { visible: true });\n`;
+                        code += `    await page.click('${selector}');\n`;
+                        
+                        if (event.element?.tagName === 'INPUT' || event.element?.type === 'text') {
+                            lastInputElement = { selector, element: event.element };
+                        }
+                    } else if (event.x !== undefined && event.y !== undefined) {
+                        code += `    await page.mouse.click(${event.x}, ${event.y});\n`;
+                    }
+                    code += `    await page.waitForTimeout(500);\n`;
+                    
+                } else if (event.type === 'typed_text' && event.text) {
+                    if (lastInputElement) {
+                        const { selector, element } = lastInputElement;
+                        if (element?.type === 'password') {
+                            const envVar = (element.name || 'PASSWORD').toUpperCase().replace(/[^A-Z0-9_]/g, '_');
+                            code += `    await page.type('${selector}', process.env.${envVar} || 'your_password');\n`;
+                        } else {
+                            code += `    await page.type('${selector}', '${event.text.replace(/'/g, "\\'")}')\n`;
+                        }
+                        lastInputElement = null;
+                    } else {
+                        code += `    await page.keyboard.type('${event.text.replace(/'/g, "\\'")}');\n`;
+                    }
+                    
+                } else if (event.type === 'keystroke' || event.type === 'keydown') {
+                    const key = event.key || event.keyCode;
+                    if (key === 'Enter' || key === 13) {
+                        code += `    await page.keyboard.press('Enter');\n`;
+                        code += `    await page.waitForNavigation({ waitUntil: 'networkidle2' });\n`;
+                    } else if (typeof key === 'string') {
+                        code += `    await page.keyboard.press('${key}');\n`;
+                    }
+                }
+            });
+            
+            return code + '\n';
+        }
+        
+        // Original single node handling
+        return `    // Step ${node.step}: ${node.action?.description || node.description}\n\n`;
+    }
+
+    /**
+     * Generate Selenium automation code
+     */
+    generateSeleniumCode() {
+        let code = `// Auto-generated Selenium WebDriver code
+// Process: ${this.process.name}
+// Generated: ${new Date().toISOString()}
+
+const { Builder, By, Key, until } = require('selenium-webdriver');
+
+async function execute${this.toCamelCase(this.process.name)}() {
+    let driver = await new Builder().forBrowser('chrome').build();
+    
+    try {
+`;
+        
+        const sortedNodes = this.topologicalSort();
+        
+        for (const node of sortedNodes) {
+            code += this.nodeToSeleniumCode(node);
+        }
+        
+        code += `
+    } finally {
+        await driver.quit();
+    }
+}
+
+execute${this.toCamelCase(this.process.name)}().catch(console.error);
+`;
+        
+        return code;
+    }
+    
+    /**
+     * Convert node to Selenium code
+     */
+    nodeToSeleniumCode(node) {
+        // Handle marked actions with multiple events
+        if (node.type === 'marked-action' && node.data?.events) {
+            let code = `        // Marked Action: ${node.description}\n`;
+            let lastInputElement = null;
+            
+            node.data.events.forEach((event, index) => {
+                if (event.pageContext?.url && index === 0) {
+                    code += `        await driver.get('${event.pageContext.url}');\n`;
+                }
+                
+                if (event.type === 'click') {
+                    const selector = this.getBestSelector(event.element || event.selector);
+                    if (selector) {
+                        let byMethod = 'css';
+                        let selectorValue = selector;
+                        
+                        if (selector.startsWith('#')) {
+                            byMethod = 'id';
+                            selectorValue = selector.substring(1);
+                        } else if (selector.startsWith('[name=')) {
+                            byMethod = 'name';
+                            selectorValue = selector.match(/\[name="(.+?)"\]/)?.[1] || selector;
+                        } else if (selector.startsWith('xpath=')) {
+                            byMethod = 'xpath';
+                            selectorValue = selector.substring(6);
+                        }
+                        
+                        code += `        let element = await driver.wait(until.elementLocated(By.${byMethod}('${selectorValue}')), 10000);\n`;
+                        code += `        await element.click();\n`;
+                        
+                        if (event.element?.tagName === 'INPUT' || event.element?.type === 'text') {
+                            lastInputElement = { varName: 'element', element: event.element };
+                        }
+                    }
+                    code += `        await driver.sleep(500);\n`;
+                    
+                } else if (event.type === 'typed_text' && event.text) {
+                    if (lastInputElement) {
+                        const { element } = lastInputElement;
+                        if (element?.type === 'password') {
+                            const envVar = (element.name || 'PASSWORD').toUpperCase().replace(/[^A-Z0-9_]/g, '_');
+                            code += `        await element.clear();\n`;
+                            code += `        await element.sendKeys(process.env.${envVar} || 'your_password');\n`;
+                        } else {
+                            code += `        await element.clear();\n`;
+                            code += `        await element.sendKeys('${event.text.replace(/'/g, "\\'")}')\;\n`;
+                        }
+                        lastInputElement = null;
+                    } else {
+                        code += `        await driver.actions().sendKeys('${event.text.replace(/'/g, "\\'")}')).perform();\n`;
+                    }
+                    
+                } else if (event.type === 'keystroke' || event.type === 'keydown') {
+                    const key = event.key || event.keyCode;
+                    if (key === 'Enter' || key === 13) {
+                        code += `        await driver.actions().sendKeys(Key.RETURN).perform();\n`;
+                        code += `        await driver.sleep(2000);\n`;
+                    } else if (typeof key === 'string') {
+                        code += `        await driver.actions().sendKeys(Key.${key.toUpperCase()}).perform();\n`;
+                    }
+                }
+            });
+            
+            return code + '\n';
+        }
+        
+        // Original single node handling
+        return `        // Step ${node.step}: ${node.action?.description || node.description}\n\n`;
     }
 
     /**
