@@ -804,6 +804,308 @@ body {
     background: #f5f5f5;
 }
 
+/* Mark Mode Indicator */
+.mark-mode-indicator {
+    position: fixed;
+    top: 80px;
+    right: 20px;
+    z-index: 10000;
+    animation: slideIn 0.3s ease-out;
+}
+
+@keyframes slideIn {
+    from {
+        transform: translateX(100%);
+        opacity: 0;
+    }
+    to {
+        transform: translateX(0);
+        opacity: 1;
+    }
+}
+
+.mark-mode-content {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    padding: 16px 20px;
+    border-radius: 12px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+    min-width: 280px;
+    max-width: 350px;
+}
+
+.mark-mode-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 12px;
+}
+
+.mark-mode-icon {
+    font-size: 24px;
+    animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.1); }
+}
+
+.mark-mode-title {
+    font-size: 16px;
+    font-weight: 600;
+}
+
+.mark-mode-info {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 0;
+    border-top: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.mark-mode-hint {
+    font-size: 13px;
+    opacity: 0.9;
+}
+
+.mark-mode-progress {
+    font-size: 12px;
+    background: rgba(255, 255, 255, 0.2);
+    padding: 4px 8px;
+    border-radius: 12px;
+}
+
+.mark-mode-text-preview {
+    margin-top: 12px;
+    padding: 10px;
+    background: rgba(255, 255, 255, 0.15);
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.3);
+}
+
+.preview-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    opacity: 0.8;
+    display: block;
+    margin-bottom: 4px;
+}
+
+.preview-text {
+    font-family: 'Courier New', monospace;
+    font-size: 14px;
+    word-break: break-all;
+    display: block;
+    min-height: 20px;
+    padding: 4px;
+    background: rgba(0, 0, 0, 0.2);
+    border-radius: 4px;
+}
+
+.mark-mode-actions {
+    display: flex;
+    gap: 10px;
+    margin-top: 12px;
+}
+
+.mark-mode-done {
+    flex: 1;
+    padding: 10px;
+    background: linear-gradient(135deg, #4CAF50, #45a049);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    color: white;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 600;
+    transition: all 0.2s;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+.mark-mode-done:hover {
+    background: linear-gradient(135deg, #45a049, #4CAF50);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.mark-mode-cancel {
+    flex: 1;
+    padding: 10px;
+    background: rgba(255, 255, 255, 0.2);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    color: white;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 13px;
+    transition: background 0.2s;
+}
+
+.mark-mode-cancel:hover {
+    background: rgba(255, 255, 255, 0.3);
+}
+
+/* Mark Completed Dialog */
+.mark-completed-dialog {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: white;
+    padding: 28px;
+    border-radius: 16px;
+    box-shadow: 0 15px 50px rgba(0, 0, 0, 0.25);
+    z-index: 10001;
+    min-width: 480px;
+    max-width: 600px;
+    animation: dialogSlideIn 0.3s ease-out;
+}
+
+@keyframes dialogSlideIn {
+    from {
+        transform: translate(-50%, -50%) scale(0.9);
+        opacity: 0;
+    }
+    to {
+        transform: translate(-50%, -50%) scale(1);
+        opacity: 1;
+    }
+}
+
+.mark-completed-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 20px;
+    padding-bottom: 16px;
+    border-bottom: 2px solid #f0f0f0;
+}
+
+.mark-completed-icon {
+    font-size: 36px;
+    animation: checkmarkBounce 0.5s ease-out;
+}
+
+@keyframes checkmarkBounce {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.2); }
+}
+
+.mark-completed-title {
+    font-size: 20px;
+    font-weight: 600;
+    color: #2c3e50;
+}
+
+.mark-completed-form {
+    margin: 20px 0;
+}
+
+.form-group {
+    margin-bottom: 16px;
+}
+
+.form-group label {
+    display: block;
+    margin-bottom: 6px;
+    font-weight: 500;
+    color: #555;
+    font-size: 14px;
+}
+
+.form-input {
+    width: 100%;
+    padding: 10px 12px;
+    border: 2px solid #e0e0e0;
+    border-radius: 8px;
+    font-size: 14px;
+    transition: border-color 0.2s;
+}
+
+.form-input:focus {
+    outline: none;
+    border-color: #667eea;
+    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+}
+
+textarea.form-input {
+    resize: vertical;
+    min-height: 60px;
+    font-family: inherit;
+}
+
+.mark-completed-details {
+    display: flex;
+    gap: 16px;
+    padding: 12px;
+    background: #f8f9fa;
+    border-radius: 8px;
+    margin-top: 16px;
+    flex-wrap: wrap;
+}
+
+.detail-item {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 13px;
+    color: #666;
+}
+
+.mark-completed-actions {
+    display: flex;
+    gap: 12px;
+    justify-content: flex-end;
+    margin-top: 24px;
+}
+
+.btn-success {
+    background: linear-gradient(135deg, #4CAF50, #45a049);
+    color: white;
+    padding: 10px 20px;
+    border: none;
+    border-radius: 8px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    box-shadow: 0 2px 8px rgba(76, 175, 80, 0.3);
+}
+
+.btn-success:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(76, 175, 80, 0.4);
+}
+
+/* Success Notification */
+.success-notification {
+    position: fixed;
+    top: 20px;
+    right: -400px;
+    background: linear-gradient(135deg, #4CAF50, #45a049);
+    color: white;
+    padding: 16px 24px;
+    border-radius: 12px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    z-index: 10002;
+    transition: right 0.3s ease-out;
+}
+
+.success-notification.show {
+    right: 20px;
+}
+
+.success-icon {
+    font-size: 24px;
+}
+
+.success-message {
+    font-size: 14px;
+    font-weight: 500;
+}
+
 /* Utility Classes */
 .hidden {
     display: none !important;

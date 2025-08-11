@@ -7,11 +7,13 @@ const { app, BrowserWindow, ipcMain, globalShortcut, Menu, Tray, screen, dialog 
 const path = require('path');
 const CaptureService = require('./capture-service');
 const WindowManager = require('./window-manager');
+const MarkBeforeHandler = require('./mark-before-handler');
 
 // Keep references to avoid garbage collection
 let mainWindow = null;
 let captureService = null;
 let windowManager = null;
+let markBeforeHandler = null;
 let tray = null;
 
 // Single instance lock
@@ -100,6 +102,12 @@ function initializeServices() {
     // Initialize capture service
     captureService = new CaptureService();
     
+    // Initialize mark before handler
+    markBeforeHandler = new MarkBeforeHandler();
+    if (mainWindow) {
+        markBeforeHandler.init(mainWindow);
+    }
+    
     // Start capture service
     captureService.initialize();
     
@@ -110,10 +118,16 @@ function initializeServices() {
     mainWindow.on('move', updateWindowBounds);
     mainWindow.on('resize', updateWindowBounds);
     
-    // Forward capture events to renderer
+    // Forward capture events to renderer AND mark handler
     captureService.on('activity', (data) => {
+        // Always send to renderer for UI updates
         if (mainWindow && !mainWindow.isDestroyed()) {
             mainWindow.webContents.send('capture:activity', data);
+        }
+        
+        // If mark mode is active, also process in mark handler
+        if (markBeforeHandler && markBeforeHandler.isActive()) {
+            markBeforeHandler.processEvent(data);
         }
     });
 
@@ -141,10 +155,26 @@ function updateWindowBounds() {
  * Setup global keyboard shortcuts
  */
 function setupGlobalShortcuts() {
-    // Mark important step
+    // Mark important step - now uses Mark Before pattern
     globalShortcut.register('CommandOrControl+Shift+M', () => {
-        if (mainWindow) {
-            mainWindow.webContents.send('shortcut:mark-important');
+        if (markBeforeHandler) {
+            if (markBeforeHandler.isActive()) {
+                // If already in mark mode, stop and start a new one
+                const capturedData = markBeforeHandler.stopMarkMode('new-mark-started');
+                if (capturedData && mainWindow) {
+                    mainWindow.webContents.send('mark:completed', capturedData);
+                }
+                markBeforeHandler.startMarkMode();
+            } else {
+                // Start mark mode
+                markBeforeHandler.startMarkMode();
+                // Set completion callback
+                markBeforeHandler.onCompletion((result) => {
+                    if (mainWindow && !mainWindow.isDestroyed()) {
+                        mainWindow.webContents.send('mark:completed', result);
+                    }
+                });
+            }
         }
     });
 
@@ -188,7 +218,35 @@ function setupIpcHandlers() {
     });
 
     ipcMain.on('capture:mark', (event, data) => {
-        captureService.markImportant(data);
+        // New mark before pattern
+        if (data && data.action === 'start') {
+            markBeforeHandler.startMarkMode(data.description);
+            markBeforeHandler.onCompletion((result) => {
+                if (mainWindow && !mainWindow.isDestroyed()) {
+                    mainWindow.webContents.send('mark:completed', result);
+                }
+            });
+        } else if (data && data.action === 'stop') {
+            const result = markBeforeHandler.stopMarkMode('manual-stop');
+            if (result && mainWindow) {
+                mainWindow.webContents.send('mark:completed', result);
+            }
+        } else {
+            // Legacy support
+            captureService.markImportant(data);
+        }
+    });
+    
+    // Mark mode status
+    ipcMain.handle('mark:status', () => {
+        if (markBeforeHandler) {
+            return {
+                active: markBeforeHandler.isActive(),
+                eventCount: markBeforeHandler.getEventCount(),
+                currentText: markBeforeHandler.getCurrentText()
+            };
+        }
+        return { active: false, eventCount: 0, currentText: '' };
     });
 
     // Window controls

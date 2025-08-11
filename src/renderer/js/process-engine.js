@@ -240,6 +240,34 @@ class ProcessEngine {
     }
 
     /**
+     * Add a node (alias for createNode for compatibility)
+     */
+    addNode(data) {
+        console.log('[ProcessEngine] addNode called with:', data);
+        const node = this.createNode(data);
+        return node ? node.id : null;
+    }
+    
+    /**
+     * Mark a node as important
+     */
+    markNodeAsImportant(nodeId) {
+        console.log('[ProcessEngine] markNodeAsImportant called for:', nodeId);
+        const node = this.process.nodes.get(nodeId);
+        if (!node) return false;
+        
+        node.metadata.isImportant = true;
+        node.metadata.importance = 'high';
+        this.notifyObservers('nodeUpdated', node);
+        
+        if (this.autoSave) {
+            this.save();
+        }
+        
+        return true;
+    }
+
+    /**
      * Update a node with new data
      */
     updateNode(nodeId, updates) {

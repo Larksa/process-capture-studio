@@ -949,6 +949,46 @@ class CanvasBuilder {
         
         return icons[type] || '📍';
     }
+    
+    /**
+     * Handle updates from ProcessEngine (Observer pattern)
+     */
+    handleEngineUpdate(event, data) {
+        console.log('[Canvas] Received engine update:', event, data);
+        
+        switch (event) {
+            case 'nodeCreated':
+                // Add the node to the canvas
+                const nodeData = {
+                    id: data.id,
+                    type: data.type || 'action',
+                    title: data.action?.description || data.description || 'Action',
+                    subtitle: data.metadata?.notes || '',
+                    timestamp: data.timestamp || Date.now(),
+                    isImportant: data.metadata?.isImportant || false,
+                    previousId: this.currentNodeId
+                };
+                this.addNode(nodeData);
+                console.log('[Canvas] Added node to visual map:', nodeData.id);
+                break;
+                
+            case 'nodeUpdated':
+                // Update existing node if needed
+                const node = this.nodes.get(data.id);
+                if (node) {
+                    // Update visual representation if important flag changed
+                    if (data.metadata?.isImportant) {
+                        node.element.classList.add('important');
+                    }
+                }
+                break;
+                
+            case 'process:cleared':
+                // Clear the canvas
+                this.clear();
+                break;
+        }
+    }
 }
 
 /**

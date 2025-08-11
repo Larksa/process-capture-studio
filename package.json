@@ -22,7 +22,10 @@
     "postinstall": "electron-builder install-app-deps",
     "rebuild": "electron-rebuild",
     "clean": "rm -rf dist builds node_modules",
-    "test": "echo 'Tests coming soon'"
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "active-win": "^8.1.0",
@@ -31,10 +34,15 @@
   },
   "devDependencies": {
     "@electron/rebuild": "^3.3.0",
+    "@playwright/test": "^1.54.2",
+    "@types/jest": "^30.0.0",
     "electron": "^27.0.0",
     "electron-builder": "^24.6.4",
+    "electron-mocha": "^13.1.0",
     "electron-rebuild": "^3.2.9",
-    "electron-reloader": "^1.2.3"
+    "electron-reloader": "^1.2.3",
+    "jest": "^30.0.5",
+    "sinon": "^21.0.0"
   },
   "build": {
     "productName": "Process Capture Studio",

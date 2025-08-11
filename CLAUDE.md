@@ -4,12 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Process Capture Studio is an Electron-based RPA (Robotic Process Automation) platform that captures user workflows WITH FULL CONTEXT and converts them into automation-ready code. It combines UiPath-level technical capability with AI-powered reasoning capture to understand not just WHAT users do, but WHY they do it.
-
-### Strategic Vision
-- **Goal**: Build "UiPath + Business Analyst in One"
-- **Differentiator**: Captures business reasoning, not just technical actions
-- **Architecture**: Composite approach using best-in-class libraries
+Process Capture Studio is an Electron-based RPA platform that captures user workflows WITH FULL CONTEXT and converts them into automation-ready code. It captures not just WHAT users do, but WHY they do it - combining UiPath-level technical capability with AI-powered reasoning capture.
 
 ## Architecture
 
@@ -34,43 +29,42 @@ Process Capture Studio is an Electron-based RPA (Robotic Process Automation) pla
 ## Development Commands
 
 ```bash
-# Install dependencies
-npm install
+# Install and setup
+npm install              # Install dependencies
+npm run rebuild          # Rebuild native modules (if uiohook-napi fails)
 
-# Run in development mode (with auto-reload and DevTools)
-npm run dev
+# Development
+npm run dev              # Development mode with auto-reload and DevTools
+npm start                # Production mode
 
-# Run in production mode
-npm start
+# Building
+npm run build            # Build for current platform
+npm run build:win        # Windows executable
+npm run build:mac        # macOS app
+npm run build:linux      # Linux AppImage
+npm run build:all        # All platforms
 
-# Build executables for distribution
-npm run build        # Build for current platform
-npm run build:win    # Windows executable
-npm run build:mac    # macOS app
-npm run build:linux  # Linux AppImage
-npm run build:all    # All platforms
+# Testing (placeholder - no tests yet)
+npm test
 
-# Clean project
-npm run clean        # Remove dist, builds, node_modules
-
-# Rebuild native modules (if needed)
-npm run rebuild
+# Cleanup
+npm run clean            # Remove dist, builds, node_modules
 ```
 
 ## Key Technologies
 
 ### Current Stack
 - **Electron 27**: Desktop framework
-- **uiohook-napi**: System-wide keyboard/mouse capture (basic coordinates only)
-- **active-win**: Get active window information
-- **electron-builder**: Cross-platform distribution
+- **uiohook-napi**: System-wide keyboard/mouse capture (coordinates only)
+- **active-win**: Active window information
+- **playwright**: Installed but not yet integrated for browser context
 
-### Planned Integrations (PRIORITY)
-- **Playwright**: Browser automation and selector capture
-- **winax/edge-js**: Windows COM for Excel/Office integration  
-- **@nut-tree/nut-js**: Cross-platform desktop automation
-- **UI Automation API**: Windows native app control identification
-- **Anthropic Claude API**: AI-powered reasoning and questioning
+### Critical Missing Context (TOP PRIORITY)
+1. **Element Selectors**: Currently captures coordinates only, needs DOM/UI element context
+2. **Browser Integration**: Playwright integration for URLs, DOM elements, form fields
+3. **Excel/Office Integration**: COM automation for cell-level tracking
+4. **File System Context**: Complete file paths and operations
+5. **AI Reasoning**: Claude API for intelligent questioning
 
 ## Global Shortcuts
 
@@ -97,17 +91,16 @@ npm run rebuild
 
 ## Process Data Model
 
-The ProcessEngine manages nodes with comprehensive automation data:
+ProcessEngine manages nodes with:
 - **Action details**: Type, description, timestamp
-- **Element data**: Selectors, XPath, attributes, position
+- **Element data**: Selectors, XPath, attributes, position (planned)
 - **Context**: Application, window, URL, file paths
-- **Data flow**: Input sources, output destinations
 - **Business logic**: Conditions, reasons, validation rules
 - **Branches**: Decision paths and alternatives
 
 ## Export Formats
 
-The application can export captured processes to:
+Currently supports export to:
 - Playwright (browser automation)
 - Python (desktop automation with pyautogui)
 - Selenium (web testing)
@@ -115,104 +108,137 @@ The application can export captured processes to:
 - Markdown documentation
 - Mermaid flowcharts
 
-## Security Considerations
+## Critical Path Development Tasks
 
-- Passwords are never stored (marked as credential fields)
-- All data stored locally only
-- Sensitive data can be blurred/excluded
-- No cloud connectivity unless explicitly configured
+### 1. Add Browser Context Capture (URGENT)
+```javascript
+// In capture-service.js, integrate Playwright for browser context
+// Example: When click detected, if browser window:
+// 1. Connect to browser via CDP
+// 2. Get element selector at click coordinates
+// 3. Capture DOM attributes, text, URL
+```
+
+### 2. Implement Element Selector Capture
+```javascript
+// Transform raw coordinates to actionable selectors:
+// Windows: UI Automation API
+// Mac: Accessibility API
+// Linux: AT-SPI
+// Browser: Playwright selectors
+```
+
+### 3. Add Excel/Office Integration
+```javascript
+// Use winax or edge-js for COM automation
+// Capture: Cell address, formula, value, sheet name
+// Track: Copy sources, paste destinations
+```
+
+### 4. Enrich Activity Data
+Current activity structure needs enhancement:
+```javascript
+// FROM (current):
+{ type: 'click', x: 100, y: 200, app: 'Chrome' }
+
+// TO (needed):
+{
+  type: 'click',
+  coordinates: { x: 100, y: 200 },
+  element: {
+    selector: '#submit-button',
+    xpath: '//button[@id="submit-button"]',
+    text: 'Submit Order',
+    attributes: { id: 'submit-button', class: 'btn-primary' }
+  },
+  context: {
+    app: 'Chrome',
+    url: 'https://example.com/orders',
+    title: 'Order Management'
+  },
+  businessContext: 'Submitting customer order after validation'
+}
+```
 
 ## Platform-Specific Notes
 
 ### macOS
-- Requires accessibility permissions for keystroke capture
+- Requires accessibility permissions (System Preferences → Security → Privacy)
 - May need screen recording permission
 - Hardened runtime with entitlements configured
 
 ### Windows
-- May require running as Administrator for full capture
-- Portable and installer versions available
+- May require Administrator privileges for full capture
+- COM automation needed for Office integration
 
 ### Linux
 - User must be in `input` group for keystroke capture
-- AppImage format for easy distribution
+- AppImage format for distribution
 
-## Testing
+## Known Issues & Workarounds
 
-Currently no automated tests (`npm test` returns placeholder).
-Consider adding:
-- Unit tests for ProcessEngine
-- Integration tests for IPC communication
-- E2E tests for capture workflows
+1. **uiohook-napi fails to build**: Run `npm run rebuild`
+2. **Keystrokes not captured on Mac**: Check accessibility permissions
+3. **Canvas performance with many nodes**: Implement virtualization (planned)
 
-## Common Development Tasks
+## Architecture Evolution Path
 
-### Adding Context Capture (CRITICAL PATH)
-1. **Browser Context**: Integrate Playwright for selector capture
-2. **Excel Context**: Use COM automation for cell-level tracking
-3. **Desktop Context**: Implement UI Automation API
-4. **Enrich Activities**: Transform raw clicks into contextual actions
-
-### Adding New Export Format
-1. Extend `ProcessEngine.exportToCode()` in process-engine.js
-2. Add format option to export dialog
-3. Implement code generation logic
-4. Include selector-based automation
-
-### Adding New Capture Type
-1. Extend CaptureService to detect new activity
-2. **Add context extraction for the activity type**
-3. Add handler in main.js IPC
-4. Update ProcessEngine node types
-5. Add UI representation in activity-tracker.js
-
-### Implementing AI Layer
-1. Integrate Claude API client
-2. Add context-aware questioning logic
-3. Implement pattern recognition
-4. Build business rule extraction
-
-## Build Configuration
-
-Configured in package.json `build` section:
-- Output directory: `builds/`
-- Compression: maximum
-- Icons in `assets/` directory
-- Platform-specific configurations for Mac, Windows, Linux
-
-## Critical Missing Features (As of 2025-08-10)
-
-### What We Have
-- ✅ System-wide click/keystroke capture
-- ✅ Application name detection
-- ✅ Three-panel UI system
-- ✅ Basic process mapping
-
-### What We Need (Priority Order)
-1. **Element Selectors**: Full context of WHAT was clicked
-2. **Browser Integration**: URLs, DOM elements, form fields
-3. **Excel Integration**: Cell addresses, values, formulas
-4. **File Paths**: Complete file system context
-5. **AI Questioning**: Smart, context-aware prompts
-
-## Architecture Evolution
-
-### Current: Basic Capture
+### Current State (v1.0)
 ```
-Mouse/Keyboard → uiohook → Coordinates → Activity Log
+Mouse/Keyboard → uiohook → Coordinates → Basic Activity Log
 ```
 
-### Target: Full Context Capture
+### Next Milestone (v1.1)
 ```
 Mouse/Keyboard → uiohook → Coordinates
                               ↓
                     Context Enrichment Layer
                     ├── Playwright (Browser)
-                    ├── COM (Office)
-                    ├── UI Automation (Desktop)
-                    └── AI Analysis (Reasoning)
+                    ├── Active Window (Desktop)
+                    └── Basic AI Prompting
                               ↓
-                    Rich Contextual Activity
-                              ↓
-                    Automation-Ready Export
+                    Contextual Activity Log
 ```
+
+### Target Architecture (v2.0)
+```
+User Action → Multi-Source Capture
+                    ↓
+            Context Enrichment Layer
+            ├── Playwright (Browser DOM)
+            ├── COM (Office Integration)
+            ├── UI Automation (Desktop Apps)
+            └── Claude AI (Reasoning & Intelligence)
+                    ↓
+            Rich Contextual Process Model
+                    ↓
+            Automation-Ready Export
+            ├── Executable Code
+            ├── Documentation
+            └── Test Scripts
+```
+
+## Quick Debugging Tips
+
+```bash
+# Check if capture service is running
+# In DevTools console:
+await window.electronAPI.invoke('capture:status')
+
+# Test IPC communication
+window.electronAPI.invoke('system:get-active-app')
+
+# Monitor capture events
+# In main process console (npm run dev shows this)
+# Look for: "Capture activity:" logs
+
+# Force rebuild native modules
+rm -rf node_modules && npm install && npm run rebuild
+```
+
+## Security Considerations
+
+- Passwords are never stored (marked as credential fields only)
+- All data stored locally in app's userData directory
+- No cloud connectivity unless explicitly configured
+- Sensitive data can be blurred/excluded from capture

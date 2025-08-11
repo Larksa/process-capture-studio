@@ -135,6 +135,30 @@
         </div>
     </div>
 
+    <!-- Mark Mode Indicator -->
+    <div id="mark-mode-indicator" class="mark-mode-indicator hidden">
+        <div class="mark-mode-content">
+            <div class="mark-mode-header">
+                <span class="mark-mode-icon">🎯</span>
+                <span class="mark-mode-title">Recording Next Action...</span>
+            </div>
+            <div class="mark-mode-info">
+                <span class="mark-mode-hint">Perform your action, then click Done or press Enter</span>
+                <span class="mark-mode-progress">
+                    <span id="mark-event-count">0</span> events captured
+                </span>
+            </div>
+            <div class="mark-mode-text-preview hidden" id="mark-text-preview">
+                <span class="preview-label">Typing:</span>
+                <span class="preview-text" id="mark-text-content"></span>
+            </div>
+            <div class="mark-mode-actions">
+                <button class="mark-mode-done" id="done-mark">✓ Done (Enter)</button>
+                <button class="mark-mode-cancel" id="cancel-mark">✗ Cancel (Esc)</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Floating dialogs -->
     <div id="step-dialog" class="dialog hidden">
         <div class="dialog-content">

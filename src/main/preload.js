@@ -20,6 +20,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
         ipcRenderer.on('capture:activity', (event, data) => callback(data));
     },
     
+    // Mark mode events
+    onMarkModeStarted: (callback) => {
+        ipcRenderer.on('mark:mode-started', (event, data) => callback(data));
+    },
+    onMarkModeStopped: (callback) => {
+        ipcRenderer.on('mark:mode-stopped', (event, data) => callback(data));
+    },
+    onMarkCompleted: (callback) => {
+        ipcRenderer.on('mark:completed', (event, data) => callback(data));
+    },
+    getMarkStatus: () => ipcRenderer.invoke('mark:status'),
+    
     // Keyboard shortcuts
     onShortcut: (shortcut, callback) => {
         ipcRenderer.on(`shortcut:${shortcut}`, callback);

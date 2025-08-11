@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test Mark Before Pattern</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+            background: #f0f0f0;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+        }
+        .status {
+            padding: 10px;
+            background: #e8f4f8;
+            border-radius: 4px;
+            margin: 10px 0;
+        }
+        .instructions {
+            background: #fff3cd;
+            padding: 15px;
+            border-radius: 4px;
+            border-left: 4px solid #ffc107;
+            margin: 20px 0;
+        }
+        code {
+            background: #f4f4f4;
+            padding: 2px 6px;
+            border-radius: 3px;
+        }
+        .success {
+            color: green;
+            font-weight: bold;
+        }
+        .error {
+            color: red;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🧪 Mark Before Pattern Test</h1>
+        
+        <div class="instructions">
+            <h3>Test Instructions:</h3>
+            <ol>
+                <li>Open the main application in Electron</li>
+                <li>Press <code>Ctrl+Shift+M</code> (or <code>Cmd+Shift+M</code> on Mac) to start marking</li>
+                <li>Type some text or perform actions</li>
+                <li>The dialog should appear with captured events</li>
+                <li>Fill in the description and context</li>
+                <li>Click <strong>Save Step</strong></li>
+                <li>Verify:
+                    <ul>
+                        <li>✅ Dialog closes properly</li>
+                        <li>✅ Step appears on the Process Map</li>
+                        <li>✅ Success notification shows</li>
+                        <li>✅ Chat shows the saved step</li>
+                    </ul>
+                </li>
+            </ol>
+        </div>
+        
+        <div class="status">
+            <h3>Expected Console Logs:</h3>
+            <pre>
+[MarkBefore] Starting mark mode...
+[MarkBefore] Processing event: {...}
+[MarkBefore] Stopping mark mode...
+Save button clicked
+[ProcessEngine] addNode called with: {...}
+[ProcessEngine] markNodeAsImportant called for: [nodeId]
+[Canvas] Received engine update: nodeCreated {...}
+[Canvas] Added node to visual map: [nodeId]
+Removing dialog from DOM...
+Dialog removed successfully
+            </pre>
+        </div>
+        
+        <div class="status">
+            <h3>Common Issues & Fixes:</h3>
+            <ul>
+                <li><strong>Dialog doesn't close:</strong> Check console for JavaScript errors</li>
+                <li><strong>Node doesn't appear on map:</strong> Verify canvas observer is registered</li>
+                <li><strong>Save button doesn't work:</strong> Check if recording is active</li>
+            </ul>
+        </div>
+        
+        <div class="instructions" style="background: #d4edda; border-left-color: #28a745;">
+            <h3>✅ All fixes have been implemented:</h3>
+            <ul>
+                <li class="success">Added missing addNode() and markNodeAsImportant() methods</li>
+                <li class="success">Connected Canvas as observer to ProcessEngine</li>
+                <li class="success">Added error handling to Save/Discard handlers</li>
+                <li class="success">Fixed handleEngineUpdate method placement in CanvasBuilder</li>
+                <li class="success">Added logging for debugging</li>
+            </ul>
+        </div>
+    </div>
+</body>
+</html>

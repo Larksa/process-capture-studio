@@ -442,7 +442,9 @@ class ActivityTracker {
             app_switch: '🔄',
             copy: '📋',
             paste: '📌',
-            decision: '🔀'
+            decision: '🔀',
+            'marked-action': '🎯',
+            'text-input': '💬'
         };
         
         return icons[type] || '▶️';
@@ -500,8 +502,21 @@ class ActivityTracker {
             case 'mark_important':
                 return 'Marked as important step';
             
+            case 'marked-action':
+                // Display the summary from Mark Before capture
+                if (activity.summary) {
+                    return activity.summary;
+                } else if (activity.capturedText) {
+                    return `Typed: "${activity.capturedText}"`;
+                } else {
+                    return `Captured ${activity.eventCount || 0} events`;
+                }
+            
+            case 'text-input':
+                return activity.capturedText ? `Typed: "${activity.capturedText}"` : 'Text input';
+            
             default:
-                return activity.type;
+                return activity.description || activity.type;
         }
     }
 

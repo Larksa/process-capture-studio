@@ -26,6 +26,7 @@ class ProcessCaptureApp {
         this.isRecording = false;
         this.currentBranch = null;
         this.recordingMode = 'linear'; // 'linear', 'branch', 'review'
+        this.isSavingMark = false; // Flag to prevent duplicate saves
         
         // Store element references to prevent loss
         this.elements = {};
@@ -43,6 +44,19 @@ class ProcessCaptureApp {
         // Setup engine observers
         this.engine.subscribe((event, data) => {
             this.handleEngineEvent(event, data);
+        });
+        
+        // Connect canvas to engine as observer
+        this.engine.subscribe((event, data) => {
+            if (this.canvas && this.canvas.handleEngineUpdate) {
+                this.canvas.handleEngineUpdate(event, data);
+            } else {
+                // Try to get canvas reference and retry
+                if (window.canvasBuilder && window.canvasBuilder.handleEngineUpdate) {
+                    this.canvas = window.canvasBuilder;
+                    this.canvas.handleEngineUpdate(event, data);
+                }
+            }
         });
         
         // Setup UI event handlers
@@ -391,9 +405,22 @@ class ProcessCaptureApp {
             }
         });
 
-        // Listen for global shortcuts
+        // Listen for mark mode events
+        window.electronAPI.onMarkModeStarted((data) => {
+            this.showMarkModeIndicator(data);
+        });
+        
+        window.electronAPI.onMarkModeStopped((data) => {
+            this.hideMarkModeIndicator();
+        });
+        
+        window.electronAPI.onMarkCompleted((data) => {
+            this.handleMarkCompleted(data);
+        });
+
+        // Listen for global shortcuts - Mark Before pattern
         window.electronAPI.onShortcut('mark-important', () => {
-            this.markCurrentAsImportant();
+            this.startMarkMode();
         });
 
         window.electronAPI.onShortcut('toggle-capture', () => {
@@ -812,7 +839,7 @@ class ProcessCaptureApp {
     }
 
     /**
-     * Mark current moment as important
+     * Mark current moment as important (Legacy - being replaced by Mark Before)
      */
     markCurrentAsImportant() {
         // Tell main process we're marking a step FIRST (to prevent recording the action)
@@ -835,6 +862,409 @@ class ProcessCaptureApp {
                 });
             }
         }, 100); // 100ms delay to ensure flag is set
+    }
+    
+    /**
+     * Start Mark Before mode - captures next action with intent
+     */
+    startMarkMode() {
+        if (window.electronAPI) {
+            window.electronAPI.markImportant({ action: 'start' });
+        }
+    }
+    
+    /**
+     * Show mark mode indicator UI
+     */
+    showMarkModeIndicator(data) {
+        const indicator = document.getElementById('mark-mode-indicator');
+        const eventCount = document.getElementById('mark-event-count');
+        const textPreview = document.getElementById('mark-text-preview');
+        const textContent = document.getElementById('mark-text-content');
+        
+        // Show the indicator
+        indicator.classList.remove('hidden');
+        
+        // Update event count periodically
+        this.markModeInterval = setInterval(async () => {
+            if (window.electronAPI) {
+                const status = await window.electronAPI.getMarkStatus();
+                if (status.active) {
+                    eventCount.textContent = status.eventCount;
+                    
+                    // Show text preview if typing
+                    if (status.currentText && status.currentText.length > 0) {
+                        textPreview.classList.remove('hidden');
+                        textContent.textContent = status.currentText;
+                    } else {
+                        textPreview.classList.add('hidden');
+                    }
+                }
+            }
+        }, 100);
+        
+        // Handle Done button
+        const doneBtn = document.getElementById('done-mark');
+        doneBtn.onclick = () => {
+            console.log('Done button clicked');
+            if (window.electronAPI) {
+                window.electronAPI.markImportant({ action: 'stop', reason: 'done-button' });
+            }
+        };
+        
+        // Handle cancel button
+        const cancelBtn = document.getElementById('cancel-mark');
+        cancelBtn.onclick = () => {
+            console.log('Cancel button clicked');
+            if (window.electronAPI) {
+                window.electronAPI.markImportant({ action: 'stop', reason: 'cancelled' });
+            }
+            this.hideMarkModeIndicator();
+        };
+    }
+    
+    /**
+     * Hide mark mode indicator
+     */
+    hideMarkModeIndicator() {
+        const indicator = document.getElementById('mark-mode-indicator');
+        indicator.classList.add('hidden');
+        
+        // Clear the update interval
+        if (this.markModeInterval) {
+            clearInterval(this.markModeInterval);
+            this.markModeInterval = null;
+        }
+    }
+    
+    /**
+     * Handle mark completed event
+     */
+    handleMarkCompleted(data) {
+        console.log('=================================');
+        console.log('[Mark] MARK COMPLETED HANDLER CALLED');
+        console.log('[Mark] Data received:', data);
+        console.log('[Mark] Events count:', data?.events?.length);
+        console.log('[Mark] Captured text:', data?.capturedText);
+        console.log('[Mark] Summary:', data?.summary);
+        console.log('=================================');
+        
+        // Hide the indicator
+        this.hideMarkModeIndicator();
+        
+        // Don't save yet - wait for user to confirm in dialog
+        // Just show the dialog for now
+        console.log('[Mark] Calling showMarkCompletedDialog...');
+        this.showMarkCompletedDialog(data);
+        console.log('[Mark] Dialog should be visible now');
+    }
+    
+    /**
+     * Show mark completed dialog with context capture
+     */
+    showMarkCompletedDialog(data) {
+        // Remove any existing dialog first
+        const existingDialog = document.querySelector('.mark-completed-dialog');
+        if (existingDialog) {
+            console.log('[Dialog] Removing existing dialog first');
+            existingDialog.remove();
+        }
+        
+        // Create dialog element
+        const dialog = document.createElement('div');
+        dialog.className = 'mark-completed-dialog';
+        dialog.id = 'mark-completed-dialog-' + Date.now(); // Unique ID
+        dialog.innerHTML = `
+            <div class="mark-completed-header">
+                <span class="mark-completed-icon">✅</span>
+                <span class="mark-completed-title">Step Captured Successfully!</span>
+            </div>
+            
+            <div class="mark-completed-form">
+                <div class="form-group">
+                    <label>What did you just do?</label>
+                    <input type="text" id="mark-description" class="form-input" 
+                           value="${data.summary}" placeholder="e.g., Searched for customer">
+                </div>
+                
+                <div class="form-group">
+                    <label>Why did you do this? (Context)</label>
+                    <textarea id="mark-context" class="form-input" rows="2" 
+                              placeholder="e.g., Need to verify customer details before processing order"></textarea>
+                </div>
+                
+                <div class="mark-completed-details">
+                    <span class="detail-item">📊 ${data.events.length} events captured</span>
+                    <span class="detail-item">⏱️ ${(data.duration / 1000).toFixed(1)}s duration</span>
+                    ${data.capturedText ? `<span class="detail-item">💬 Text: "${data.capturedText}"</span>` : ''}
+                </div>
+            </div>
+            
+            <div class="mark-completed-actions">
+                <button class="btn btn-success" id="save-mark">💾 Save Step</button>
+                <button class="btn" id="discard-mark">Discard</button>
+            </div>
+        `;
+        
+        document.body.appendChild(dialog);
+        console.log('[Dialog] Mark dialog added to DOM');
+        
+        // Focus on description field
+        setTimeout(() => {
+            const descField = document.getElementById('mark-description');
+            if (descField) {
+                descField.focus();
+                console.log('[Dialog] Description field focused');
+            } else {
+                console.error('[Dialog] Description field not found!');
+            }
+        }, 100);
+        
+        // Wait a moment to ensure DOM is ready
+        setTimeout(() => {
+            // Handle Save button
+            const saveBtn = document.getElementById('save-mark');
+            const discardBtn = document.getElementById('discard-mark');
+            
+            console.log('[Dialog] Looking for buttons...');
+            console.log('[Dialog] Save button found:', !!saveBtn);
+            console.log('[Dialog] Discard button found:', !!discardBtn);
+            
+            if (!saveBtn) {
+                console.error('[Dialog] ERROR: Save button not found in DOM!');
+                // Try to find by class as backup
+                const buttons = dialog.querySelectorAll('button');
+                console.log('[Dialog] Found buttons in dialog:', buttons.length);
+                buttons.forEach((btn, i) => {
+                    console.log(`[Dialog] Button ${i}: "${btn.textContent.trim()}", id="${btn.id}"`);
+                });
+            }
+            
+            if (saveBtn) {
+                console.log('[Dialog] Attaching Save button handler...');
+                
+                // Try both onclick and addEventListener for maximum compatibility
+                saveBtn.addEventListener('click', (e) => {
+                    console.log('>>> SAVE BUTTON CLICKED (addEventListener)! <<<');
+                    e.stopPropagation();
+                    
+                    // Prevent duplicate saves
+                    if (this.isSavingMark) {
+                        console.log('[Dialog] Already saving, ignoring duplicate click');
+                        return;
+                    }
+                    this.isSavingMark = true;
+            
+            try {
+                const description = document.getElementById('mark-description').value || data.summary;
+                const context = document.getElementById('mark-context').value;
+                
+                console.log('Saving with description:', description, 'context:', context);
+                
+                // Update the data with user input
+                data.summary = description;
+                data.context = context;
+                
+                // Add to activity tracker first
+                if (this.tracker && this.isRecording) {
+                    this.tracker.addActivity({
+                        type: 'marked-action',
+                        summary: description,
+                        capturedText: data.capturedText,
+                        actionType: data.actionType,
+                        timestamp: data.startTime,
+                        duration: data.duration,
+                        eventCount: data.events.length,
+                        context: context,
+                        application: data.events[0]?.application || 'Unknown'
+                    });
+                }
+                
+                // Save to process engine with context - always save even if not recording
+                // so marked steps are preserved
+                const nodeData = {
+                    type: 'marked-action',
+                    description: description,
+                    context: context,
+                    timestamp: data.startTime,
+                    duration: data.duration,
+                    data: {
+                        capturedText: data.capturedText,
+                        actionType: data.actionType,
+                        events: data.events,
+                        reason: context
+                    }
+                };
+                
+                const nodeId = this.engine.addNode(nodeData);
+                if (nodeId) {
+                    this.engine.markNodeAsImportant(nodeId);
+                    console.log('Added node to engine:', nodeId);
+                } else {
+                    console.error('Failed to add node to engine');
+                }
+                
+                // Add to chat with context
+                this.addChatMessage('ai', `✅ Saved: "${description}"${context ? ` (${context})` : ''}`);
+                
+                // Show success notification
+                this.showSuccessNotification(`Step saved: ${description}`);
+                
+                // Remove dialog
+                console.log('Removing dialog from DOM...');
+                if (document.body.contains(dialog)) {
+                    document.body.removeChild(dialog);
+                    console.log('Dialog removed successfully');
+                } else {
+                    console.log('Dialog not found in body');
+                }
+                
+                // Reset flag after successful save
+                this.isSavingMark = false;
+                    } catch (error) {
+                        console.error('ERROR in save handler:', error);
+                        alert('Error saving step: ' + error.message);
+                        // Reset flag on error too
+                        this.isSavingMark = false;
+                    }
+                });
+                console.log('[Dialog] Save button handler attached successfully');
+            } else {
+                console.error('[Dialog] Cannot attach Save handler - button not found!');
+            }
+            
+            // Handle Discard button
+            if (discardBtn) {
+                console.log('[Dialog] Attaching Discard button handler...');
+                discardBtn.addEventListener('click', (e) => {
+                    console.log('>>> DISCARD BUTTON CLICKED (addEventListener)! <<<');
+                    e.stopPropagation();
+                    try {
+                        if (document.body.contains(dialog)) {
+                            document.body.removeChild(dialog);
+                            console.log('[Dialog] Dialog removed after discard');
+                        }
+                        this.addChatMessage('ai', `❌ Discarded captured action`);
+                    } catch (error) {
+                        console.error('ERROR in discard handler:', error);
+                    }
+                });
+                console.log('[Dialog] Discard button handler attached successfully');
+            } else {
+                console.error('[Dialog] Cannot attach Discard handler - button not found!');
+            }
+            
+            // Handle Enter key in form
+            dialog.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    const saveBtn = document.getElementById('save-mark');
+                    if (saveBtn) {
+                        console.log('[Dialog] Enter key pressed, triggering save...');
+                        saveBtn.click();
+                    }
+                }
+            });
+        }, 150); // End of setTimeout for button handlers
+        
+        // Alternative: Use event delegation as fallback
+        dialog.addEventListener('click', (e) => {
+            const target = e.target;
+            console.log('[Dialog] Click event on:', target.tagName, target.id, target.textContent);
+            
+            // Check if Save button was clicked
+            if (target.id === 'save-mark' || target.textContent.includes('Save Step')) {
+                console.log('[Dialog-Delegation] SAVE CLICKED via delegation!');
+                e.preventDefault();
+                e.stopPropagation();
+                
+                // Prevent duplicate saves
+                if (this.isSavingMark) {
+                    console.log('[Dialog-Delegation] Already saving, ignoring duplicate');
+                    return;
+                }
+                this.isSavingMark = true;
+                
+                try {
+                    const description = document.getElementById('mark-description').value || data.summary;
+                    const context = document.getElementById('mark-context').value;
+                    
+                    console.log('[Dialog-Delegation] Saving with:', { description, context });
+                    
+                    // Save to engine
+                    const nodeData = {
+                        type: 'marked-action',
+                        description: description,
+                        context: context,
+                        timestamp: data.startTime,
+                        duration: data.duration,
+                        data: {
+                            capturedText: data.capturedText,
+                            actionType: data.actionType,
+                            events: data.events,
+                            reason: context
+                        }
+                    };
+                    
+                    const nodeId = this.engine.addNode(nodeData);
+                    if (nodeId) {
+                        this.engine.markNodeAsImportant(nodeId);
+                        console.log('[Dialog-Delegation] Node added:', nodeId);
+                    }
+                    
+                    this.addChatMessage('ai', `✅ Saved: "${description}"${context ? ` (${context})` : ''}`);
+                    this.showSuccessNotification(`Step saved: ${description}`);
+                    
+                    // Remove dialog
+                    dialog.remove();
+                    console.log('[Dialog-Delegation] Dialog removed');
+                    
+                    // Reset flag after successful save
+                    this.isSavingMark = false;
+                } catch (error) {
+                    console.error('[Dialog-Delegation] Error:', error);
+                    alert('Error: ' + error.message);
+                    // Reset flag on error too
+                    this.isSavingMark = false;
+                }
+            }
+            
+            // Check if Discard button was clicked
+            if (target.id === 'discard-mark' || target.textContent === 'Discard') {
+                console.log('[Dialog-Delegation] DISCARD CLICKED via delegation!');
+                e.preventDefault();
+                e.stopPropagation();
+                dialog.remove();
+                this.addChatMessage('ai', `❌ Discarded captured action`);
+            }
+        });
+    }
+
+    /**
+     * Show success notification
+     */
+    showSuccessNotification(message) {
+        const notification = document.createElement('div');
+        notification.className = 'success-notification';
+        notification.innerHTML = `
+            <span class="success-icon">✅</span>
+            <span class="success-message">${message}</span>
+        `;
+        
+        document.body.appendChild(notification);
+        
+        // Animate in
+        setTimeout(() => {
+            notification.classList.add('show');
+        }, 10);
+        
+        // Remove after 3 seconds
+        setTimeout(() => {
+            notification.classList.remove('show');
+            setTimeout(() => {
+                document.body.removeChild(notification);
+            }, 300);
+        }, 3000);
     }
 
     /**
@@ -1103,8 +1533,12 @@ class ProcessCaptureApp {
                 this.updateSaveIndicator(true);
                 break;
             case 'nodeUpdated':
-                // Update canvas node
-                this.canvas.updateNode(data);
+                // Update canvas node if method exists
+                if (this.canvas && this.canvas.updateNode) {
+                    this.canvas.updateNode(data);
+                } else {
+                    console.log('[Engine] Canvas updateNode not available, skipping visual update');
+                }
                 // Update save indicator
                 this.updateSaveIndicator(true);
                 break;
