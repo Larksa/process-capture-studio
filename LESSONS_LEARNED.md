@@ -93,4 +93,72 @@
 - [active-win](https://www.npmjs.com/package/active-win) - Active window detection
 - `electron-builder install-app-deps` - Rebuild native modules
 - `DEBUG_CAPTURE=true` pattern - Conditional debug logging
+
+## 🎯 RPA Platform Insights (Phase 6)
+
+### Export Format Architecture
+- **Concept**: Different automation scenarios require different tools
+- **What clicked**: Not all automation is web-based - desktop apps need different approach
+- **Mental model**: Choose export format based on target environment
+- **Key Learning**: One capture → Multiple export formats → Maximum flexibility
+
+### Export Format Strengths Matrix
+| Format | Best For | Strengths | Limitations |
+|--------|----------|-----------|-------------|
+| **Playwright** | Modern web apps | Cross-browser, async, selectors | Web only |
+| **Puppeteer** | Chrome automation | Deep DevTools integration | Chrome only |
+| **Selenium** | Enterprise/legacy | Cross-language, mature | Slower, verbose |
+| **Python/pyautogui** | Desktop automation | Any app, file systems, OS-level | No selectors |
+| **Combined Mode** | Full workflows | Web + desktop seamlessly | Complex setup |
+
+### Critical RPA Patterns Discovered
+
+#### **Mark Before Pattern**
+- **Innovation**: Capture intent BEFORE action, not after
+- **Result**: Cleaner data with grouped events and clear purpose
+- **Implementation**: Dialog → Capture → Group next 30 seconds
+- **Future Use**: Any workflow capture needing business context
+
+#### **Browser Context via CDP**
+- **Technology**: Chrome DevTools Protocol in worker process
+- **Captures**: DOM elements, selectors, IDs, attributes
+- **Challenge**: Electron async conflicts require process separation
+- **Solution**: Worker process architecture for stability
+
+#### **Credential Management Pattern**
+- **Detection**: Identify password fields by type/name/id
+- **Storage**: Never store actual values, only field markers
+- **Export**: Generate with environment variables
+- **Example**: `process.env.ACTIVECAMPAIGN_PASSWORD`
+
+### Architecture Decisions That Paid Off
+
+1. **Worker Process for CDP**
+   - Avoided Electron async conflicts
+   - Enabled parallel browser monitoring
+   - Clean separation of concerns
+
+2. **Multi-Format Export Pipeline**
+   - Single capture serves multiple automation needs
+   - Users choose tool based on their stack
+   - Future-proof as new tools emerge
+
+3. **Element Data Preservation**
+   - Store all selector strategies (ID, name, CSS, XPath)
+   - Use best selector at export time
+   - Resilient to UI changes
+
+### Skills Progression in RPA Domain
+- **Browser Automation**: Intermediate → Advanced
+- **Desktop Automation**: Beginner → Intermediate  
+- **Process Modeling**: Intermediate → Advanced
+- **Export Generation**: Basic → Production-ready
+- **CDP Integration**: Zero → Working implementation
+
+### What Makes This Different
+Traditional RPA tools (UiPath, Blue Prism) are black boxes. Our approach:
+- **Transparent**: See the generated code
+- **Flexible**: Export to any format
+- **Developer-friendly**: Git-compatible text files
+- **AI-ready**: Captures the "why" for future AI processing
 EOF < /dev/null

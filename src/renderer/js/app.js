@@ -466,6 +466,12 @@ class ProcessCaptureApp {
         window.electronAPI.onMarkCompleted((data) => {
             this.handleMarkCompleted(data);
         });
+        
+        // Listen for immediate intent prompt
+        window.electronAPI.onMarkBeforePrompt(() => {
+            console.log('[App] Received mark-before:prompt - showing intent dialog');
+            this.showIntentDialog();
+        });
 
         // Listen for global shortcuts - Mark Before pattern
         window.electronAPI.onShortcut('mark-important', () => {
@@ -914,12 +920,109 @@ class ProcessCaptureApp {
     }
     
     /**
+     * Show intent dialog - NEW: appears IMMEDIATELY on Cmd+Shift+M
+     */
+    showIntentDialog() {
+        // Remove any existing dialog
+        const existingDialog = document.querySelector('.intent-dialog');
+        if (existingDialog) {
+            existingDialog.remove();
+        }
+        
+        // Create intent dialog
+        const dialog = document.createElement('div');
+        dialog.className = 'intent-dialog mark-completed-dialog'; // Reuse existing styles
+        dialog.innerHTML = `
+            <div class="mark-completed-header">
+                <span class="mark-completed-icon">🎯</span>
+                <span class="mark-completed-title">What are you about to do?</span>
+            </div>
+            
+            <div class="mark-completed-form">
+                <div class="form-group">
+                    <label>Describe your intent:</label>
+                    <input type="text" id="intent-description" class="form-input" 
+                           placeholder="e.g., Create ActiveCampaign automation" autofocus>
+                    <small style="color: #666; display: block; margin-top: 5px;">
+                        After clicking Start, you'll have 30 seconds to perform the action
+                    </small>
+                </div>
+                
+                <div class="button-group">
+                    <button id="start-capture-btn" class="primary-btn">
+                        <span>🔴</span> Start Capture
+                    </button>
+                    <button id="cancel-intent-btn" class="secondary-btn">
+                        Cancel
+                    </button>
+                </div>
+            </div>
+        `;
+        
+        document.body.appendChild(dialog);
+        
+        // Focus on input
+        const intentInput = document.getElementById('intent-description');
+        intentInput.focus();
+        
+        // Handle Enter key
+        intentInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                this.startIntentCapture(intentInput.value);
+                dialog.remove();
+            } else if (e.key === 'Escape') {
+                dialog.remove();
+            }
+        });
+        
+        // Handle Start button
+        document.getElementById('start-capture-btn').addEventListener('click', () => {
+            const intent = intentInput.value.trim();
+            if (intent) {
+                this.startIntentCapture(intent);
+                dialog.remove();
+            } else {
+                intentInput.focus();
+                intentInput.style.borderColor = '#ff6b6b';
+            }
+        });
+        
+        // Handle Cancel button
+        document.getElementById('cancel-intent-btn').addEventListener('click', () => {
+            dialog.remove();
+        });
+    }
+    
+    /**
+     * Start capture with declared intent
+     */
+    async startIntentCapture(intent) {
+        console.log('[App] Starting capture with intent:', intent);
+        
+        // Show notification
+        this.showNotification(`📹 Recording: "${intent}" (30 seconds)`);
+        
+        // Start mark mode with intent
+        if (window.electronAPI) {
+            const result = await window.electronAPI.invoke('mark-before:start-with-intent', { intent });
+            if (result.success) {
+                console.log('[App] Mark Before started successfully');
+                
+                // Show visual indicator that capture is active
+                this.showMarkModeIndicator({ description: intent });
+            } else {
+                console.error('[App] Failed to start Mark Before:', result.error);
+                this.showNotification('Failed to start capture', 'error');
+            }
+        }
+    }
+    
+    /**
      * Start Mark Before mode - captures next action with intent
      */
     startMarkMode() {
-        if (window.electronAPI) {
-            window.electronAPI.markImportant({ action: 'start' });
-        }
+        // Now this shows the intent dialog
+        this.showIntentDialog();
     }
     
     /**
@@ -1131,6 +1234,18 @@ class ProcessCaptureApp {
                 
                 // Save to process engine with context - always save even if not recording
                 // so marked steps are preserved
+                // Extract element data from events for proper storage
+                const enrichedEvents = data.events.map(event => {
+                    if (event.element && event.pageContext) {
+                        // Full browser context captured
+                        return {
+                            ...event,
+                            hasFullContext: true
+                        };
+                    }
+                    return event;
+                });
+                
                 const nodeData = {
                     type: 'marked-action',
                     description: description,
@@ -1140,8 +1255,11 @@ class ProcessCaptureApp {
                     data: {
                         capturedText: data.capturedText,
                         actionType: data.actionType,
-                        events: data.events,
-                        reason: context
+                        events: enrichedEvents,
+                        reason: context,
+                        // Store primary element if it's a click with element data
+                        primaryElement: enrichedEvents.find(e => e.type === 'click' && e.element)?.element,
+                        primaryPageContext: enrichedEvents.find(e => e.type === 'click' && e.pageContext)?.pageContext
                     }
                 };
                 

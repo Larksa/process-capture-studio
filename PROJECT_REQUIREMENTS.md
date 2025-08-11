@@ -1,17 +1,17 @@
 # Process Capture Studio - Living Requirements
 
 ## 🚦 Current Status
-**Last Updated**: 2025-08-11 4:15 PM  
-**Phase**: Phase 5 - Export & Data Management ✅ COMPLETED
-**Blocked By**: Nothing - Export functionality FIXED!
-**Next Action**: Move to Phase 6 - AI Integration OR fix remaining context capture issues
+**Last Updated**: 2025-08-11 10:30 PM  
+**Phase**: Phase 0/1 Implementation - Intent-First Mark Before Pattern
+**Blocked By**: Nothing - Core fixes implemented!
+**Next Action**: Test intent dialog flow and implement completion options
 
 ## 📊 Progress Overview
-- Total Tasks: 72 (added 4 export fixes)
-- Completed: 66 (92%)
-- In Progress: 0 
-- Discovered: 32 (tasks found during work)
-- Failed Attempts: 4 (EPIPE resolved, Playwright async pending)
+- Total Tasks: 80 (added 8 enhanced export tasks)
+- Completed: 66 (82.5%)
+- In Progress: 8 (Phase 6 - Enhanced Export)
+- Discovered: 33 (tasks found during work)
+- Failed Attempts: 4 (EPIPE resolved, Playwright async resolved with worker process)
 
 ## 🎯 Original Vision
 [Preserved from initial conversation - NEVER delete, only annotate]
@@ -49,6 +49,18 @@
 - **[2025-08-11 3:00 PM]**: Mark Before fully working with dialog, context capture, and process map integration
 - **[2025-08-11 3:30 PM]**: Export functionality issues identified - need to fix JSON export and add download
 - **[2025-08-11 4:15 PM]**: FIXED all export issues! JSON, downloads, Python generation all working perfectly
+- **[2025-08-11 5:30 PM]**: Browser context capture WORKING! Successfully capturing DOM elements, selectors, IDs via CDP
+- **[2025-08-11 6:00 PM]**: CRITICAL INSIGHT - Different export formats serve different purposes:
+  - Playwright/Puppeteer: Web automation with DOM selectors
+  - Python/pyautogui: Desktop apps, file systems, cross-application workflows
+  - Selenium: Enterprise standard, cross-language support
+  - Combined mode: Complete RPA solution bridging web and desktop
+- **[2025-08-11 10:30 PM]**: MAJOR IMPROVEMENT - Intent-First Mark Before Pattern implemented:
+  - Dialog appears IMMEDIATELY on Cmd+Shift+M
+  - User declares intent BEFORE performing action
+  - Fixed ProcessEngine.handleActivity error
+  - Fixed data storage in marked action nodes
+  - Export now generates actual automation code with captured events
 
 ## 📋 Task Hierarchy
 
@@ -393,25 +405,58 @@
 - **Reason 3**: Open formats (JSON, Python, JS) are more flexible
 - **Decision**: Skip RPA tool formats, focus on developer-friendly exports
 
-### Phase 6: AI Integration [0/6 tasks] - Next Sprint
-- [ ] 6.1: Integrate Claude API for intelligent questioning
-- [ ] 6.2: Build context-aware prompt system
-- [ ] 6.3: Implement pattern recognition
-- [ ] 6.4: Add business rule extraction
-- [ ] 6.5: Create decision tree builder
-- [ ] 6.6: Implement suggestion engine
+### Phase 6: Enhanced Export & Complete RPA Pipeline [0/8 tasks] - CURRENT SPRINT
+- [ ] 6.1: Store complete DOM element data in ProcessEngine
+  - **Status**: Not Started
+  - **Notes**: Need selectors, IDs, names, types for all elements
+  
+- [ ] 6.2: Fix Mark Before handler to pass full element data
+  - **Status**: Not Started
+  - **Notes**: Currently losing element context in handoff
+  
+- [ ] 6.3: Enhance Playwright export with proper selectors
+  - **Status**: Not Started
+  - **Notes**: Use IDs/names instead of coordinates
+  
+- [ ] 6.4: Add Python/pyautogui export format
+  - **Status**: Not Started
+  - **Notes**: For desktop automation outside browser
+  
+- [ ] 6.5: Add combined Playwright+pyautogui export
+  - **Status**: Not Started
+  - **Notes**: Complete workflows spanning web and desktop
+  
+- [ ] 6.6: Implement credential management
+  - **Status**: Not Started
+  - **Notes**: Detect password fields, use env variables
+  
+- [ ] 6.7: Add Selenium export format
+  - **Status**: Not Started
+  - **Notes**: For enterprise compatibility
+  
+- [ ] 6.8: Add Puppeteer export format
+  - **Status**: Not Started
+  - **Notes**: For Chrome-specific features
 
-### Phase 7: Advanced Features [0/10 tasks] - Future
-- [ ] 7.1: Loop detection and recording
-- [ ] 4.2: Parallel process support
-- [ ] 4.3: Error recovery flows
-- [ ] 4.4: Data validation rules
-- [ ] 4.5: API integration detection
-- [ ] 4.6: Database query capture
-- [ ] 4.7: Email automation hooks
-- [ ] 4.8: Cloud storage integration
-- [ ] 4.9: Team collaboration features
-- [ ] 4.10: Process versioning
+### Phase 7: AI Integration [0/6 tasks] - Next Sprint
+- [ ] 7.1: Integrate Claude API for intelligent questioning
+- [ ] 7.2: Build context-aware prompt system
+- [ ] 7.3: Implement pattern recognition
+- [ ] 7.4: Add business rule extraction
+- [ ] 7.5: Create decision tree builder
+- [ ] 7.6: Implement suggestion engine
+
+### Phase 8: Advanced Features [0/10 tasks] - Future
+- [ ] 8.1: Loop detection and recording
+- [ ] 8.2: Parallel process support
+- [ ] 8.3: Error recovery flows
+- [ ] 8.4: Data validation rules
+- [ ] 8.5: API integration detection
+- [ ] 8.6: Database query capture
+- [ ] 8.7: Email automation hooks
+- [ ] 8.8: Cloud storage integration
+- [ ] 8.9: Team collaboration features
+- [ ] 8.10: Process versioning
 
 ## ❌ Failed Approaches
 [Document what didn't work to save time next time]

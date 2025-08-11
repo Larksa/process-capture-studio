@@ -93,25 +93,44 @@ class ProcessEngine {
             },
             
             // UI Element data (for clicks, typing)
-            element: data.element ? {
-                selector: data.element.selector,
-                xpath: data.element.xpath,
-                id: data.element.id,
-                className: data.element.className,
-                tagName: data.element.tagName,
-                text: data.element.text,
-                attributes: data.element.attributes,
-                position: data.element.position, // {x, y} coordinates
-                size: data.element.size // {width, height}
-            } : null,
+            // Enhanced to support CDP-captured element data
+            element: (data.element || data.data?.primaryElement) ? (() => {
+                const elem = data.element || data.data?.primaryElement;
+                return {
+                    // Support both old format and new enhanced format from CDP
+                    selector: elem.selector || elem.selectors?.css,
+                    xpath: elem.xpath || elem.selectors?.xpath,
+                    id: elem.id || elem.selectors?.id,
+                    name: elem.name,
+                    className: elem.className || elem.selectors?.className,
+                    tagName: elem.tagName || elem.tag,
+                    text: elem.text || elem.selectors?.text,
+                    attributes: elem.attributes || elem.selectors?.attributes,
+                    position: elem.position, // {x, y} coordinates
+                    size: elem.size, // {width, height}
+                    // Store all selectors for export flexibility
+                    selectors: elem.selectors,
+                    // Element type info for forms
+                    type: elem.type,
+                    value: elem.value,
+                    href: elem.href,
+                    isClickable: elem.isClickable,
+                    isInput: elem.isInput
+                };
+            })() : null,
             
             // Application context
+            // Enhanced with page context from CDP
             context: {
-                application: data.application, // 'chrome', 'excel', 'outlook', etc.
-                window: data.windowTitle,
-                url: data.url,
+                application: data.application || data.context?.application,
+                window: data.windowTitle || data.context?.window,
+                url: data.url || data.pageContext?.url || data.data?.primaryPageContext?.url,
+                domain: data.pageContext?.domain || data.data?.primaryPageContext?.domain,
+                title: data.pageContext?.title || data.data?.primaryPageContext?.title,
                 filePath: data.filePath,
-                processName: data.processName
+                processName: data.processName,
+                // Store full page context if available
+                pageContext: data.pageContext || data.data?.primaryPageContext
             },
             
             // Data flow
@@ -199,8 +218,19 @@ class ProcessEngine {
                 notes: data.notes || '',
                 tags: data.tags || [],
                 screenshots: data.screenshots || []
-            }
+            },
+            
+            // CRITICAL: Preserve the raw data including events array!
+            // This contains the actual captured events from Mark Before
+            data: data.data || null
         };
+        
+        // If this is a marked action with events, detect sub-steps
+        if (node.type === 'marked-action' && node.data?.events?.length > 0) {
+            console.log('[ProcessEngine] Detecting sub-steps for marked action with', node.data.events.length, 'events');
+            node.data.subSteps = this.detectSubSteps(node.data.events);
+            console.log('[ProcessEngine] Detected', node.data.subSteps.length, 'sub-steps');
+        }
         
         this.process.nodes.set(node.id, node);
         this.process.currentNodeId = node.id;
@@ -404,18 +434,107 @@ execute${this.toCamelCase(this.process.name)}().catch(console.error);
     }
 
     /**
+     * Get best selector for an element
+     */
+    getBestSelector(element) {
+        if (!element) return null;
+        
+        // Priority: ID > name > CSS > XPath
+        if (element?.selectors?.id) {
+            return element.selectors.id;
+        }
+        if (element?.id) {
+            return `#${element.id}`;
+        }
+        if (element?.name) {
+            return `[name="${element.name}"]`;
+        }
+        if (element?.selectors?.css) {
+            return element.selectors.css;
+        }
+        if (element?.selector) {
+            return element.selector;
+        }
+        if (element?.selectors?.xpath) {
+            return `xpath=${element.selectors.xpath}`;
+        }
+        
+        return null;
+    }
+    
+    /**
+     * Find previous click event for text input
+     */
+    findPreviousClick(events, currentEvent) {
+        const currentIndex = events.indexOf(currentEvent);
+        for (let i = currentIndex - 1; i >= 0; i--) {
+            if (events[i].type === 'click' && events[i].element?.isInput) {
+                return events[i];
+            }
+        }
+        return null;
+    }
+
+    /**
      * Convert a single node to Playwright code
      */
     nodeToPlaywrightCode(node) {
+        // Handle marked actions with multiple events
+        if (node.type === 'marked-action' && node.data?.events) {
+            let code = `    // Marked Action: ${node.description}\n`;
+            if (node.context) {
+                code += `    // Context: ${node.context}\n`;
+            }
+            
+            // Process each event in the marked action
+            node.data.events.forEach(event => {
+                if (event.type === 'click' && event.element) {
+                    const selector = this.getBestSelector(event.element);
+                    if (selector) {
+                        code += `    await page.waitForSelector('${selector}', { state: 'visible' });\n`;
+                        code += `    await page.click('${selector}');\n`;
+                        if (event.element.selectors?.text) {
+                            code += `    // Clicked: "${event.element.selectors.text}"\n`;
+                        }
+                    } else if (event.position) {
+                        code += `    // No selector available, using coordinates\n`;
+                        code += `    await page.mouse.click(${event.position.x}, ${event.position.y});\n`;
+                    }
+                } else if (event.type === 'typed_text' && event.text) {
+                    // Find the associated input field
+                    const prevClick = this.findPreviousClick(node.data.events, event);
+                    if (prevClick?.element) {
+                        const selector = this.getBestSelector(prevClick.element);
+                        if (selector) {
+                            // Check if it's a password field
+                            if (prevClick.element.type === 'password') {
+                                const envVar = (prevClick.element.name || 'password').toUpperCase();
+                                code += `    await page.fill('${selector}', process.env.${envVar} || 'your_password');\n`;
+                            } else {
+                                code += `    await page.fill('${selector}', '${event.text}');\n`;
+                            }
+                        }
+                    } else {
+                        code += `    await page.keyboard.type('${event.text}');\n`;
+                    }
+                } else if (event.type === 'keystroke' && event.key) {
+                    code += `    await page.keyboard.press('${event.key}');\n`;
+                }
+            });
+            
+            return code + '\n';
+        }
+        
+        // Original handling for single action nodes
         let code = `    // Step ${node.step}: ${node.action.description}\n`;
         
         // Add wait if specified
-        if (node.timing.waitBefore) {
+        if (node.timing?.waitBefore) {
             code += `    await page.waitForTimeout(${node.timing.waitBefore});\n`;
         }
         
         // Generate action code based on type
-        switch (node.action.type) {
+        switch (node.action?.type) {
             case 'navigate':
                 // Use pageContext URL if available, otherwise use context URL
                 const url = node.pageContext?.url || node.context?.url || node.action.url;
@@ -707,15 +826,79 @@ if __name__ == "__main__":
      * Convert a single node to Python code
      */
     nodeToPythonCode(node) {
-        let code = `    # Step ${node.step}: ${node.action.description}\n`;
+        // Handle marked actions with multiple events
+        if (node.type === 'marked-action' && node.data?.events) {
+            let code = `    # Marked Action: ${node.description}\n`;
+            if (node.context) {
+                code += `    # Context: ${node.context}\n`;
+            }
+            
+            const hasWebContext = node.data.events.some(e => e.pageContext || e.element?.selectors);
+            
+            node.data.events.forEach(event => {
+                if (event.type === 'click') {
+                    if (hasWebContext && event.element) {
+                        const selector = this.getBestSelector(event.element);
+                        if (selector) {
+                            // Use Selenium for web elements
+                            if (selector.startsWith('#')) {
+                                code += `    element = WebDriverWait(driver, 10).until(\n`;
+                                code += `        EC.element_to_be_clickable((By.ID, '${selector.substring(1)}'))\n`;
+                                code += `    )\n`;
+                            } else if (selector.startsWith('[name=')) {
+                                const name = selector.match(/\[name="(.+?)"\]/)?.[1];
+                                code += `    element = WebDriverWait(driver, 10).until(\n`;
+                                code += `        EC.element_to_be_clickable((By.NAME, '${name}'))\n`;
+                                code += `    )\n`;
+                            } else {
+                                code += `    element = WebDriverWait(driver, 10).until(\n`;
+                                code += `        EC.element_to_be_clickable((By.CSS_SELECTOR, '${selector}'))\n`;
+                                code += `    )\n`;
+                            }
+                            code += `    element.click()\n`;
+                        }
+                    } else if (event.position) {
+                        // Use pyautogui for desktop clicks
+                        code += `    pyautogui.click(${event.position.x}, ${event.position.y})\n`;
+                    }
+                } else if (event.type === 'typed_text' && event.text) {
+                    const prevClick = this.findPreviousClick(node.data.events, event);
+                    if (hasWebContext && prevClick?.element) {
+                        // Check if password field
+                        if (prevClick.element.type === 'password') {
+                            const envVar = (prevClick.element.name || 'PASSWORD').toUpperCase();
+                            code += `    element.clear()\n`;
+                            code += `    element.send_keys(os.environ.get('${envVar}', 'your_password'))\n`;
+                        } else {
+                            code += `    element.clear()\n`;
+                            code += `    element.send_keys('${event.text}')\n`;
+                        }
+                    } else {
+                        code += `    pyautogui.typewrite('${event.text}')\n`;
+                    }
+                } else if (event.type === 'keystroke' && event.key) {
+                    const keys = event.key.toLowerCase().split('+').map(k => k.trim());
+                    if (keys.length > 1) {
+                        code += `    pyautogui.hotkey(${keys.map(k => `'${k}'`).join(', ')})\n`;
+                    } else {
+                        code += `    pyautogui.press('${keys[0]}')\n`;
+                    }
+                }
+            });
+            
+            return code + '\n';
+        }
+        
+        // Original handling for single action nodes
+        let code = `    # Step ${node.step}: ${node.action?.description || node.description}\n`;
         
         // Add wait if specified
-        if (node.timing.waitBefore) {
+        if (node.timing?.waitBefore) {
             code += `    time.sleep(${node.timing.waitBefore / 1000})\n`;
         }
         
         // Generate action code based on type
-        switch (node.action.type) {
+        switch (node.action?.type || node.type) {
             case 'navigate':
                 const url = node.pageContext?.url || node.context?.url || node.action.url;
                 if (url) {
@@ -973,6 +1156,205 @@ if __name__ == "__main__":
         // ...
     }
 
+    /**
+     * Handle activity from ActivityTracker
+     * This method processes activities and decides whether to create nodes
+     */
+    handleActivity(activity) {
+        console.log('[ProcessEngine] handleActivity called with:', activity.type);
+        
+        // Determine if this activity should create a node
+        if (this.shouldCreateNode(activity)) {
+            // For marked actions, use the full data
+            if (activity.type === 'marked-action') {
+                return this.addNode(activity);
+            }
+            
+            // For regular activities, create a simple node
+            const nodeData = {
+                type: activity.type,
+                description: activity.description || this.getActivityDescription(activity),
+                timestamp: activity.timestamp,
+                action: activity,
+                element: activity.element || null,
+                context: activity.context || null
+            };
+            
+            return this.addNode(nodeData);
+        }
+        
+        // Activity processed but no node created
+        return null;
+    }
+    
+    /**
+     * Determine if an activity should create a node
+     */
+    shouldCreateNode(activity) {
+        // Always create nodes for marked actions
+        if (activity.type === 'marked-action' || activity.type === 'mark_important') {
+            return true;
+        }
+        
+        // Create nodes for important activities
+        if (activity.isImportant) {
+            return true;
+        }
+        
+        // Create nodes for significant actions
+        const significantTypes = ['navigation', 'form_submit', 'file_operation', 'decision'];
+        if (significantTypes.includes(activity.type)) {
+            return true;
+        }
+        
+        return false;
+    }
+    
+    /**
+     * Detect logical sub-steps from events array
+     */
+    detectSubSteps(events) {
+        if (!events || events.length === 0) return [];
+        
+        const subSteps = [];
+        let currentStep = null;
+        let lastEventTime = 0;
+        
+        events.forEach((event, index) => {
+            const timeSinceLastEvent = lastEventTime ? (event.timestamp - lastEventTime) : 0;
+            
+            // Start new sub-step on:
+            // 1. First event
+            // 2. Page navigation (URL change)
+            // 3. Long pause (>3 seconds)
+            // 4. Form submission (Enter after typing)
+            // 5. Focus change to different element
+            
+            let shouldStartNewStep = false;
+            let stepName = '';
+            
+            // First event always starts a step
+            if (index === 0) {
+                shouldStartNewStep = true;
+                stepName = this.getEventDescription(event);
+            }
+            // Page navigation
+            else if (event.pageContext?.url && currentStep?.url !== event.pageContext.url) {
+                shouldStartNewStep = true;
+                stepName = `Navigate to ${new URL(event.pageContext.url).pathname}`;
+            }
+            // Long pause suggests new action
+            else if (timeSinceLastEvent > 3000) {
+                shouldStartNewStep = true;
+                stepName = this.getEventDescription(event);
+            }
+            // Form submission pattern
+            else if (event.type === 'keystroke' && event.key === 'Enter' && 
+                    currentStep?.events.some(e => e.type === 'typed_text')) {
+                shouldStartNewStep = true;
+                stepName = 'Submit form';
+            }
+            
+            if (shouldStartNewStep) {
+                // Save previous step if exists
+                if (currentStep) {
+                    subSteps.push(currentStep);
+                }
+                
+                // Start new step
+                currentStep = {
+                    id: `substep-${subSteps.length + 1}`,
+                    name: stepName,
+                    startTime: event.timestamp,
+                    events: [event],
+                    eventIndices: [index],
+                    url: event.pageContext?.url,
+                    primarySelector: this.extractPrimarySelector(event)
+                };
+            } else if (currentStep) {
+                // Add to current step
+                currentStep.events.push(event);
+                currentStep.eventIndices.push(index);
+                
+                // Update step name if we got more meaningful action
+                if (event.type === 'typed_text' && currentStep.events.length === 2) {
+                    currentStep.name = `Enter "${event.text}" in form`;
+                }
+            }
+            
+            lastEventTime = event.timestamp || lastEventTime;
+        });
+        
+        // Add last step
+        if (currentStep) {
+            currentStep.duration = (lastEventTime - currentStep.startTime) || 0;
+            subSteps.push(currentStep);
+        }
+        
+        return subSteps;
+    }
+    
+    /**
+     * Get description for a single event
+     */
+    getEventDescription(event) {
+        switch (event.type) {
+            case 'click':
+                if (event.element?.text) {
+                    return `Click "${event.element.text}"`;
+                } else if (event.element?.selector) {
+                    return `Click ${event.element.selector}`;
+                }
+                return 'Click element';
+                
+            case 'typed_text':
+                return `Type "${event.text}"`;
+                
+            case 'keystroke':
+                return `Press ${event.key}`;
+                
+            case 'navigation':
+                return `Navigate to ${event.url || 'page'}`;
+                
+            default:
+                return event.description || `${event.type} action`;
+        }
+    }
+    
+    /**
+     * Extract primary selector from event
+     */
+    extractPrimarySelector(event) {
+        if (event.element?.selectors?.id) {
+            return `#${event.element.selectors.id}`;
+        }
+        if (event.element?.selector) {
+            return event.element.selector;
+        }
+        if (event.element?.selectors?.css) {
+            return event.element.selectors.css;
+        }
+        return null;
+    }
+    
+    /**
+     * Get a description for an activity
+     */
+    getActivityDescription(activity) {
+        switch (activity.type) {
+            case 'click':
+                return `Clicked in ${activity.application || 'application'}`;
+            case 'keystroke':
+                return `Pressed ${activity.key} in ${activity.application || 'application'}`;
+            case 'typed_text':
+                return `Typed "${activity.text}" in ${activity.application || 'application'}`;
+            case 'navigation':
+                return `Navigated to ${activity.url || 'page'}`;
+            default:
+                return activity.description || `${activity.type} action`;
+        }
+    }
+    
     /**
      * Observer pattern for UI updates
      */

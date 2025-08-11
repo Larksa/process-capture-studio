@@ -20,6 +20,12 @@ class CaptureService extends EventEmitter {
         this.captureInternalClicks = false; // Filter internal clicks by default
         this.isMarkingStep = false; // Flag to prevent recording during mark action
         this.browserContextGetter = null; // Function to get browser context from worker
+        
+        // Keystroke buffering for text reconstruction
+        this.keystrokeBuffer = [];
+        this.keystrokeTimeout = null;
+        this.lastKeystrokeTime = 0;
+        
         this.importantPatterns = {
             copy: /ctrl\+c|cmd\+c/i,
             paste: /ctrl\+v|cmd\+v/i,
@@ -235,7 +241,7 @@ class CaptureService extends EventEmitter {
     }
 
     /**
-     * Create keystroke activity object
+     * Create keystroke activity object with text buffering
      */
     async createKeystrokeActivity(event) {
         // Don't record if we're in the middle of marking a step
@@ -264,12 +270,42 @@ class CaptureService extends EventEmitter {
             this.keyBuffer.shift();
         }
         
+        // Buffer regular characters for text reconstruction
+        const now = Date.now();
+        const timeSinceLastKey = now - this.lastKeystrokeTime;
+        
+        // If it's a regular character typed quickly, buffer it
+        if (!isImportant && key.length === 1 && key.match(/[A-Za-z0-9 .,!?@#$%^&*()_\-+=]/) && timeSinceLastKey < 1000) {
+            this.keystrokeBuffer.push(key);
+            this.lastKeystrokeTime = now;
+            
+            // Clear existing timeout
+            if (this.keystrokeTimeout) {
+                clearTimeout(this.keystrokeTimeout);
+            }
+            
+            // Set new timeout to emit buffered text after 500ms of no typing
+            this.keystrokeTimeout = setTimeout(() => {
+                this.emitBufferedKeystrokes(context);
+            }, 500);
+            
+            // Don't emit individual characters
+            return null;
+        } else if (isImportant || timeSinceLastKey > 1000 || key === 'Enter') {
+            // Emit any buffered keystrokes first
+            if (this.keystrokeBuffer.length > 0) {
+                this.emitBufferedKeystrokes(context);
+            }
+        }
+        
+        this.lastKeystrokeTime = now;
+        
         const activity = {
             type: 'keystroke',
             key: key,
             keycode: event.keycode,
             isImportant: isImportant,
-            timestamp: Date.now(),
+            timestamp: now,
             context: context,
             application: context.application,
             window: context.window,
@@ -284,6 +320,34 @@ class CaptureService extends EventEmitter {
         // console.log('Keystroke activity created:', activity); // Commented to prevent EPIPE
         
         return activity;
+    }
+    
+    /**
+     * Emit buffered keystrokes as typed text
+     */
+    emitBufferedKeystrokes(context) {
+        if (this.keystrokeBuffer.length === 0) return;
+        
+        const text = this.keystrokeBuffer.join('');
+        this.keystrokeBuffer = [];
+        
+        if (this.keystrokeTimeout) {
+            clearTimeout(this.keystrokeTimeout);
+            this.keystrokeTimeout = null;
+        }
+        
+        const activity = {
+            type: 'typed_text',
+            text: text,
+            length: text.length,
+            timestamp: Date.now(),
+            context: context || this.lastActivity?.context,
+            application: context?.application || this.lastActivity?.context?.application,
+            window: context?.window || this.lastActivity?.context?.window,
+            description: `Typed "${text.substring(0, 30)}${text.length > 30 ? '...' : ''}" in ${context?.application || 'Unknown'}`
+        };
+        
+        this.processActivity(activity);
     }
 
     /**
@@ -576,19 +640,20 @@ class CaptureService extends EventEmitter {
     }
 
     /**
-     * Get human-readable key name
+     * Get human-readable key name with improved character mapping
      */
     getKeyName(event) {
-        // Map common keycodes to names
+        // Extended keycode to character mapping
         const keyMap = {
+            // Modifier keys
             29: 'Ctrl',
             56: 'Alt',
             42: 'Shift',
             91: 'Cmd',
             3675: 'Cmd',  // macOS Command key
             3676: 'Cmd',  // macOS Command key (right)
-            50: 'M',      // M key
-            5: 'E',       // E key
+            
+            // Special keys
             13: 'Enter',
             27: 'Escape',
             9: 'Tab',
@@ -598,16 +663,47 @@ class CaptureService extends EventEmitter {
             37: 'Left',
             38: 'Up',
             39: 'Right',
-            40: 'Down'
+            40: 'Down',
+            
+            // Common letter mappings
+            50: 'M',
+            14: 'E',
+            47: '.',
+            44: '/',
+            43: ',',
+            28: '8'
         };
+        
+        // Platform-specific key mapping
+        if (process.platform === 'darwin') {
+            // macOS specific additions
+            Object.assign(keyMap, {
+                18: '1', 19: '2', 20: '3', 21: '4', 22: '5',
+                23: '6', 24: '7', 25: '8', 26: '9', 29: '0',
+                0: 'A', 11: 'B', 8: 'C', 2: 'D', 14: 'E',
+                3: 'F', 5: 'G', 4: 'H', 34: 'I', 38: 'J',
+                40: 'K', 37: 'L', 46: 'M', 45: 'N', 31: 'O',
+                35: 'P', 12: 'Q', 15: 'R', 1: 'S', 17: 'T',
+                32: 'U', 9: 'V', 13: 'W', 7: 'X', 16: 'Y',
+                6: 'Z'
+            });
+        }
         
         if (keyMap[event.keycode]) {
             return keyMap[event.keycode];
         }
         
-        // Try to get character
-        if (event.keychar) {
-            return String.fromCharCode(event.keychar);
+        // Try to get character from keychar
+        if (event.keychar && event.keychar > 0) {
+            const char = String.fromCharCode(event.keychar);
+            if (char && char.match(/[\x20-\x7E]/)) { // Printable ASCII
+                return char;
+            }
+        }
+        
+        // Try raw keycode for extended ASCII
+        if (event.rawcode && event.rawcode >= 32 && event.rawcode <= 126) {
+            return String.fromCharCode(event.rawcode);
         }
         
         return `Key${event.keycode}`;

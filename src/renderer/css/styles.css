@@ -1129,3 +1129,62 @@ textarea.form-input {
 ::-webkit-scrollbar-thumb:hover {
     background: rgba(0,0,0,0.3);
 }
+
+/* Hierarchical Events Display */
+.marked-action-events {
+    margin-top: 8px;
+    padding: 8px;
+    background: rgba(102, 126, 234, 0.05);
+    border-left: 3px solid #667eea;
+    border-radius: 4px;
+}
+
+.event-summary {
+    font-size: 12px;
+    color: #666;
+    margin-bottom: 8px;
+    font-weight: 500;
+}
+
+.sub-steps {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.sub-step {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 8px;
+    background: white;
+    border-radius: 4px;
+    font-size: 12px;
+}
+
+.sub-step:hover {
+    background: #f8f9fa;
+}
+
+.step-number {
+    background: #667eea;
+    color: white;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+    font-weight: bold;
+}
+
+.step-name {
+    flex: 1;
+    color: #333;
+}
+
+.step-events {
+    color: #999;
+    font-size: 11px;
+}

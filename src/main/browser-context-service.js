@@ -18,25 +18,47 @@ class BrowserContextService {
    * Chrome must be running with --remote-debugging-port=9222
    */
   async connectToExistingBrowser() {
+    console.log('[BrowserService] Attempting CDP connection to http://localhost:9222');
+    
     try {
       // Try to connect to Chrome DevTools Protocol
+      console.log('[BrowserService] Calling chromium.connectOverCDP...');
       this.browser = await chromium.connectOverCDP('http://localhost:9222');
       this.isConnected = true;
+      console.log('[BrowserService] Successfully connected to Chrome via CDP');
       
       // Get all contexts (browser windows)
       const contexts = this.browser.contexts();
+      console.log(`[BrowserService] Found ${contexts.length} browser contexts`);
+      
       if (contexts.length > 0) {
         // Get all pages from first context
         const pages = await contexts[0].pages();
+        console.log(`[BrowserService] Found ${pages.length} pages in first context`);
+        
         if (pages.length > 0) {
           this.activePage = pages[0];
+          const pageUrl = await this.activePage.url();
+          const pageTitle = await this.activePage.title();
+          console.log(`[BrowserService] Set active page: URL=${pageUrl}, Title=${pageTitle}`);
+          
+          // Start monitoring pages
+          await this.monitorPages();
+          console.log('[BrowserService] Page monitoring started');
+        } else {
+          console.warn('[BrowserService] No pages found in browser context');
         }
+      } else {
+        console.warn('[BrowserService] No browser contexts found');
       }
       
-      console.log('Connected to existing browser via CDP');
+      console.log('[BrowserService] Connected to existing browser via CDP successfully');
       return true;
     } catch (error) {
-      console.log('Could not connect to existing browser:', error.message);
+      console.error('[BrowserService] Failed to connect to existing browser:', error.message);
+      console.error('[BrowserService] Error type:', error.constructor.name);
+      console.error('[BrowserService] Stack:', error.stack);
+      console.log('[BrowserService] Make sure Chrome is running with: --remote-debugging-port=9222');
       return false;
     }
   }
@@ -67,12 +89,93 @@ class BrowserContextService {
    * Get element at specific coordinates
    */
   async getElementAtPoint(x, y) {
-    if (!this.activePage) return null;
+    console.log(`[BrowserService] getElementAtPoint called: SCREEN x=${x}, y=${y}`);
+    
+    if (!this.activePage) {
+      console.error('[BrowserService] No active page available');
+      return null;
+    }
 
     try {
-      const element = await this.activePage.evaluate(({ x, y }) => {
-        const elem = document.elementFromPoint(x, y);
-        if (!elem) return null;
+      // Log page details before evaluation
+      const pageUrl = await this.activePage.url();
+      console.log(`[BrowserService] Current page URL: ${pageUrl}`);
+      
+      // Get browser window position for coordinate transformation
+      // First, we need to get the browser's actual viewport coordinates
+      const browserCoords = await this.activePage.evaluate(() => {
+        return {
+          screenX: window.screenX,
+          screenY: window.screenY,
+          outerWidth: window.outerWidth,
+          outerHeight: window.outerHeight,
+          innerWidth: window.innerWidth,
+          innerHeight: window.innerHeight,
+          devicePixelRatio: window.devicePixelRatio || 1,
+          scrollX: window.pageXOffset || window.scrollX,
+          scrollY: window.pageYOffset || window.scrollY,
+          // Chrome specific - height of browser chrome (URL bar, tabs, etc.)
+          chromeHeight: window.outerHeight - window.innerHeight,
+          chromeWidth: window.outerWidth - window.innerWidth
+        };
+      });
+      
+      console.log('[BrowserService] Browser coordinates:', browserCoords);
+      
+      // Transform screen coordinates to viewport coordinates
+      // Account for browser chrome (toolbar, tabs, etc.)
+      const viewportX = x - browserCoords.screenX - (browserCoords.chromeWidth / 2);
+      const viewportY = y - browserCoords.screenY - (browserCoords.chromeHeight - browserCoords.chromeWidth / 2);
+      
+      console.log(`[BrowserService] Transformed coordinates: VIEWPORT x=${viewportX}, y=${viewportY}`);
+      
+      // Check if coordinates are within viewport
+      if (viewportX < 0 || viewportX > browserCoords.innerWidth ||
+          viewportY < 0 || viewportY > browserCoords.innerHeight) {
+        console.warn('[BrowserService] Coordinates outside viewport bounds');
+        console.warn(`[BrowserService] Viewport bounds: 0,0 to ${browserCoords.innerWidth},${browserCoords.innerHeight}`);
+      }
+      
+      console.log('[BrowserService] Executing page.evaluate to find element...');
+      const element = await this.activePage.evaluate(({ x, y, scrollX, scrollY }) => {
+        // Add scroll offset to get the correct element
+        const adjustedX = x + scrollX;
+        const adjustedY = y + scrollY;
+        
+        console.log(`[Browser Console] Looking for element at viewport x=${x}, y=${y}`);
+        console.log(`[Browser Console] With scroll offset: x=${adjustedX}, y=${adjustedY}`);
+        
+        // Try multiple methods to find element
+        let elem = document.elementFromPoint(x, y);
+        
+        if (!elem) {
+          // Try with scroll-adjusted coordinates
+          elem = document.elementFromPoint(adjustedX, adjustedY);
+          if (elem) {
+            console.log(`[Browser Console] Found element with scroll adjustment`);
+          }
+        }
+        
+        console.log(`[Browser Console] elementFromPoint result:`, elem ? `<${elem.tagName}>` : 'null');
+        
+        if (!elem) {
+          console.log(`[Browser Console] No element found at coordinates`);
+          
+          // Debug: log what's at various points
+          const points = [
+            {x: 100, y: 100},
+            {x: window.innerWidth/2, y: window.innerHeight/2},
+            {x: x, y: y}
+          ];
+          points.forEach(pt => {
+            const el = document.elementFromPoint(pt.x, pt.y);
+            if (el) {
+              console.log(`[Browser Console] Element at ${pt.x},${pt.y}: <${el.tagName}> ${el.className || ''}`);
+            }
+          });
+          
+          return null;
+        }
 
         // Build multiple selector strategies
         const selectors = {
@@ -159,11 +262,22 @@ class BrowserContextService {
                    elem.tagName === 'TEXTAREA' || 
                    elem.tagName === 'SELECT'
         };
-      }, { x, y });
+      }, { x: viewportX, y: viewportY, scrollX: browserCoords.scrollX, scrollY: browserCoords.scrollY });
+
+      if (element) {
+        console.log('[BrowserService] Element found:', {
+          tag: element.tag,
+          selector: element.selectors?.css,
+          text: element.selectors?.text?.substring(0, 50)
+        });
+      } else {
+        console.log('[BrowserService] No element returned from evaluate');
+      }
 
       return element;
     } catch (error) {
-      console.error('Failed to get element at point:', error);
+      console.error('[BrowserService] Failed to get element at point:', error.message);
+      console.error('[BrowserService] Error stack:', error.stack);
       return null;
     }
   }
@@ -226,11 +340,33 @@ class BrowserContextService {
     if (!this.browser) return;
 
     this.browser.on('targetcreated', async (target) => {
-      console.log('New page/tab created:', target.url());
+      console.log('[BrowserService] New page/tab created:', target.url());
+      
+      // Update active page if it's a page target
+      if (target.type() === 'page') {
+        const page = await target.page();
+        if (page) {
+          this.activePage = page;
+          console.log('[BrowserService] Updated active page to new tab');
+        }
+      }
     });
 
     this.browser.on('targetchanged', async (target) => {
-      console.log('Page changed:', target.url());
+      console.log('[BrowserService] Page changed:', target.url());
+      
+      // Update active page reference
+      if (target.type() === 'page') {
+        const page = await target.page();
+        if (page) {
+          this.activePage = page;
+          console.log('[BrowserService] Updated active page due to navigation');
+        }
+      }
+    });
+    
+    this.browser.on('targetdestroyed', async (target) => {
+      console.log('[BrowserService] Page/tab closed:', target.url());
     });
   }
 

@@ -404,6 +404,30 @@ class ActivityTracker {
             selectorInfo += '</div>';
         }
         
+        // For marked actions, show the captured events
+        let eventsInfo = '';
+        if (activity.type === 'marked-action' && activity.data?.events) {
+            const eventCount = activity.data.events.length;
+            const subSteps = activity.data.subSteps || [];
+            
+            eventsInfo = `
+                <div class="marked-action-events">
+                    <div class="event-summary">
+                        📊 ${eventCount} events captured | ${subSteps.length} logical steps
+                    </div>
+                    <div class="sub-steps">
+                        ${subSteps.map((step, index) => `
+                            <div class="sub-step">
+                                <span class="step-number">${index + 1}</span>
+                                <span class="step-name">${step.name}</span>
+                                <span class="step-events">(${step.events.length} events)</span>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+            `;
+        }
+        
         entry.innerHTML = `
             <div class="timestamp">${timestamp}</div>
             <div class="activity-type">
@@ -411,6 +435,7 @@ class ActivityTracker {
             </div>
             ${contextInfo}
             ${selectorInfo}
+            ${eventsInfo}
             ${activity.details ? `<div class="details">${activity.details}</div>` : ''}
         `;
         

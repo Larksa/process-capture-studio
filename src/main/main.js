@@ -5,6 +5,7 @@
 
 const { app, BrowserWindow, ipcMain, globalShortcut, Menu, Tray, screen, dialog } = require('electron');
 const path = require('path');
+const http = require('http');
 const { fork } = require('child_process');
 const CaptureService = require('./capture-service');
 const WindowManager = require('./window-manager');
@@ -172,6 +173,7 @@ function initializeBrowserWorker() {
     // Handle messages from worker
     browserWorker.on('message', (message) => {
         const { id, type, success, data, error, event } = message;
+        console.log(`[Main] Received from browser worker: type=${type}, id=${id}, success=${success}`);
         
         if (type === 'response') {
             // Handle response to a request
@@ -179,10 +181,14 @@ function initializeBrowserWorker() {
             if (callback) {
                 browserWorkerRequests.delete(id);
                 if (success) {
+                    console.log(`[Main] Browser worker returned success for id=${id}`);
                     callback.resolve(data);
                 } else {
+                    console.error(`[Main] Browser worker returned error for id=${id}:`, error);
                     callback.reject(new Error(error));
                 }
+            } else {
+                console.warn(`[Main] No callback found for browser worker response id=${id}`);
             }
         } else if (type === 'event') {
             // Handle worker events
@@ -226,16 +232,19 @@ function initializeBrowserWorker() {
 function sendToBrowserWorker(type, data = {}) {
     return new Promise((resolve, reject) => {
         if (!browserWorker) {
+            console.error('[Main] Browser worker not initialized when trying to send:', type);
             reject(new Error('Browser worker not initialized'));
             return;
         }
         
         const id = Date.now() + Math.random();
+        console.log(`[Main] Sending to browser worker: type=${type}, id=${id}`, data);
         browserWorkerRequests.set(id, { resolve, reject });
         
         // Set timeout for request
         setTimeout(() => {
             if (browserWorkerRequests.has(id)) {
+                console.error(`[Main] Browser worker request timeout for: type=${type}, id=${id}`);
                 browserWorkerRequests.delete(id);
                 reject(new Error('Browser worker request timeout'));
             }
@@ -249,8 +258,11 @@ function sendToBrowserWorker(type, data = {}) {
  * Get browser element at specific coordinates
  */
 async function getBrowserElementAtPoint(x, y) {
+    console.log(`[Main] getBrowserElementAtPoint called with x=${x}, y=${y}`);
+    
     try {
         const result = await sendToBrowserWorker('getElementAtPoint', { x, y });
+        console.log('[Main] Browser element result:', result ? 'Element found' : 'No element');
         return result;
     } catch (error) {
         console.error('[Main] Failed to get browser element:', error.message);
@@ -262,26 +274,20 @@ async function getBrowserElementAtPoint(x, y) {
  * Setup global keyboard shortcuts
  */
 function setupGlobalShortcuts() {
-    // Mark important step - now uses Mark Before pattern
+    // Mark important step - now uses Mark Before pattern with immediate intent dialog
     globalShortcut.register('CommandOrControl+Shift+M', () => {
-        if (markBeforeHandler) {
-            if (markBeforeHandler.isActive()) {
-                // If already in mark mode, stop and start a new one
-                const capturedData = markBeforeHandler.stopMarkMode('new-mark-started');
-                if (capturedData && mainWindow) {
-                    mainWindow.webContents.send('mark:completed', capturedData);
-                }
-                markBeforeHandler.startMarkMode();
-            } else {
-                // Start mark mode
-                markBeforeHandler.startMarkMode();
-                // Set completion callback
-                markBeforeHandler.onCompletion((result) => {
-                    if (mainWindow && !mainWindow.isDestroyed()) {
-                        mainWindow.webContents.send('mark:completed', result);
-                    }
-                });
+        if (mainWindow && !mainWindow.isDestroyed()) {
+            // Send signal to renderer to show intent dialog IMMEDIATELY
+            mainWindow.webContents.send('mark-before:prompt');
+            
+            // Bring window to front to ensure dialog is visible
+            if (!mainWindow.isVisible()) {
+                mainWindow.show();
             }
+            if (mainWindow.isMinimized()) {
+                mainWindow.restore();
+            }
+            mainWindow.focus();
         }
     });
 
@@ -355,6 +361,31 @@ function setupIpcHandlers() {
         }
         return { active: false, eventCount: 0, currentText: '' };
     });
+    
+    // New intent-first Mark Before handler
+    ipcMain.handle('mark-before:start-with-intent', async (event, data) => {
+        console.log('[Main] Starting Mark Before with intent:', data.intent);
+        
+        if (!markBeforeHandler) {
+            return { success: false, error: 'Handler not initialized' };
+        }
+        
+        // Start mark mode with user's declared intent
+        markBeforeHandler.startMarkMode(data.intent);
+        
+        // Set up completion callback
+        markBeforeHandler.onCompletion((result) => {
+            console.log('[Main] Mark Before completed with', result.events?.length, 'events');
+            if (mainWindow && !mainWindow.isDestroyed()) {
+                // Include the original intent in the result
+                result.intent = data.intent;
+                result.description = data.intent; // Pre-fill description
+                mainWindow.webContents.send('mark:completed', result);
+            }
+        });
+        
+        return { success: true, message: 'Capture started for 30 seconds' };
+    });
 
     // Window controls
     ipcMain.on('window:always-on-top', (event, enabled) => {
@@ -420,6 +451,7 @@ function setupIpcHandlers() {
     ipcMain.handle('browser:launch-capture', async () => {
         const { exec } = require('child_process');
         const util = require('util');
+        const http = require('http');
         const execPromise = util.promisify(exec);
         
         try {
@@ -427,10 +459,17 @@ function setupIpcHandlers() {
             
             // First, kill any existing Chrome instances with debugging port
             try {
-                await execPromise('pkill -f "remote-debugging-port=9222"');
+                if (process.platform === 'darwin') {
+                    await execPromise('pkill -f "remote-debugging-port=9222"');
+                } else if (process.platform === 'win32') {
+                    await execPromise('taskkill /F /IM chrome.exe /FI "COMMANDLINE eq *remote-debugging-port=9222*"').catch(() => {});
+                } else {
+                    await execPromise('pkill -f "remote-debugging-port=9222"');
+                }
                 console.log('[Main] Killed existing debug browser');
             } catch (e) {
                 // Ignore if no process to kill
+                console.log('[Main] No existing debug browser to kill');
             }
             
             // Wait a moment for process to fully terminate
@@ -438,40 +477,110 @@ function setupIpcHandlers() {
             
             // Launch Chrome with debugging port
             let command;
+            const profileDir = process.platform === 'win32' 
+                ? path.join(app.getPath('temp'), 'chrome-capture-profile')
+                : '/tmp/chrome-capture-profile';
+            
             if (process.platform === 'darwin') {
-                // macOS
-                command = 'open -a "Google Chrome" --args --remote-debugging-port=9222 --user-data-dir=/tmp/chrome-capture-profile --no-first-run --no-default-browser-check';
+                // macOS - try both Chrome and Chromium
+                const chromeApps = [
+                    '/Applications/Google Chrome.app',
+                    '/Applications/Chromium.app',
+                    '~/Applications/Google Chrome.app',
+                    '~/Applications/Chromium.app'
+                ];
+                
+                let chromeFound = false;
+                for (const appPath of chromeApps) {
+                    try {
+                        const expandedPath = appPath.replace('~', process.env.HOME);
+                        await execPromise(`test -d "${expandedPath}"`);
+                        command = `open -na "${expandedPath}" --args --remote-debugging-port=9222 --user-data-dir="${profileDir}" --no-first-run --no-default-browser-check --disable-background-timer-throttling`;
+                        chromeFound = true;
+                        console.log(`[Main] Found Chrome at: ${expandedPath}`);
+                        break;
+                    } catch (e) {
+                        continue;
+                    }
+                }
+                
+                if (!chromeFound) {
+                    throw new Error('Chrome or Chromium not found. Please install Google Chrome.');
+                }
+                
             } else if (process.platform === 'win32') {
                 // Windows
-                command = 'start chrome --remote-debugging-port=9222 --user-data-dir=%TEMP%\\chrome-capture-profile --no-first-run --no-default-browser-check';
+                command = `start chrome --remote-debugging-port=9222 --user-data-dir="${profileDir}" --no-first-run --no-default-browser-check --disable-background-timer-throttling`;
             } else {
                 // Linux
-                command = 'google-chrome --remote-debugging-port=9222 --user-data-dir=/tmp/chrome-capture-profile --no-first-run --no-default-browser-check &';
+                command = `google-chrome --remote-debugging-port=9222 --user-data-dir="${profileDir}" --no-first-run --no-default-browser-check --disable-background-timer-throttling &`;
             }
             
+            console.log('[Main] Launching Chrome with command:', command);
             await execPromise(command);
-            console.log('[Main] Chrome launched with debugging port');
+            console.log('[Main] Chrome launch command executed');
             
-            // Wait for Chrome to start and debugging port to be available
-            await new Promise(resolve => setTimeout(resolve, 2000));
+            // Wait for Chrome to start and verify debugging port is available
+            let connected = false;
+            for (let i = 0; i < 10; i++) {
+                await new Promise(resolve => setTimeout(resolve, 500));
+                
+                // Check if debugging port is open
+                const isPortOpen = await new Promise((resolve) => {
+                    const req = http.get('http://localhost:9222/json/version', (res) => {
+                        resolve(res.statusCode === 200);
+                    });
+                    req.on('error', () => resolve(false));
+                    req.setTimeout(500, () => {
+                        req.destroy();
+                        resolve(false);
+                    });
+                });
+                
+                if (isPortOpen) {
+                    console.log('[Main] Chrome debugging port is now open');
+                    connected = true;
+                    break;
+                }
+                
+                console.log(`[Main] Waiting for Chrome debugging port... attempt ${i + 1}/10`);
+            }
+            
+            if (!connected) {
+                throw new Error('Chrome started but debugging port not accessible');
+            }
             
             // Notify browser worker to reconnect
             if (browserWorker) {
-                browserWorker.send({ type: 'connect', data: {} });
+                console.log('[Main] Notifying browser worker to connect after Chrome launch');
+                
+                // Send connect message and wait for response
+                try {
+                    const connectResult = await sendToBrowserWorker('connect');
+                    console.log('[Main] Browser worker connect result:', connectResult);
+                    
+                    // Update UI immediately with connection status
+                    if (mainWindow) {
+                        mainWindow.webContents.send('browser:status-update', {
+                            connected: true,
+                            message: 'Enhanced capture ready'
+                        });
+                    }
+                } catch (error) {
+                    console.error('[Main] Browser worker connect failed:', error);
+                    
+                    if (mainWindow) {
+                        mainWindow.webContents.send('browser:status-update', {
+                            connected: false,
+                            message: 'Failed to connect to browser'
+                        });
+                    }
+                }
+            } else {
+                console.warn('[Main] Browser worker not available to notify about Chrome launch');
             }
             
-            // Update UI with connection status
-            setTimeout(async () => {
-                if (browserWorker) {
-                    const status = await sendToBrowserWorker('status');
-                    mainWindow.webContents.send('browser:status-update', {
-                        connected: status.isConnected,
-                        message: status.isConnected ? 'Enhanced capture ready' : 'Connecting...'
-                    });
-                }
-            }, 3000);
-            
-            return { success: true, message: 'Capture browser launched' };
+            return { success: true, message: 'Capture browser launched and connected' };
             
         } catch (error) {
             console.error('[Main] Failed to launch capture browser:', error);

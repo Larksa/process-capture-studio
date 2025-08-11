@@ -22,29 +22,38 @@ class BrowserContextWorker {
    */
   async init() {
     console.log('[BrowserWorker] Initializing browser context worker...');
+    console.log('[BrowserWorker] Process PID:', process.pid);
+    console.log('[BrowserWorker] Node version:', process.version);
     
     // Set up IPC message handling
     process.on('message', async (message) => {
       const { id, type, data } = message;
+      console.log(`[BrowserWorker] Received message: type=${type}, id=${id}`, data ? `data=${JSON.stringify(data).substring(0, 100)}` : '');
       
       try {
         let result = null;
         
         switch (type) {
           case 'connect':
+            console.log('[BrowserWorker] Handling connect request...');
             result = await this.connect();
             break;
             
           case 'disconnect':
+            console.log('[BrowserWorker] Handling disconnect request...');
             result = await this.disconnect();
             break;
             
           case 'getElementAtPoint':
+            console.log(`[BrowserWorker] Getting element at point: x=${data.x}, y=${data.y}`);
             result = await this.getElementAtPoint(data.x, data.y);
+            console.log('[BrowserWorker] Element result:', result ? 'Found element' : 'No element found');
             break;
             
           case 'getPageContext':
+            console.log('[BrowserWorker] Getting page context...');
             result = await this.getPageContext();
+            console.log('[BrowserWorker] Page context:', result ? `URL: ${result.url}` : 'No context');
             break;
             
           case 'getAllPages':
@@ -52,11 +61,13 @@ class BrowserContextWorker {
             break;
             
           case 'status':
+            console.log('[BrowserWorker] Handling status request...');
             result = {
               isConnected: this.service.isConnected,
               hasActivePage: !!this.service.activePage,
               reconnectAttempts: this.reconnectAttempts
             };
+            console.log('[BrowserWorker] Status result:', result);
             break;
             
           default:
@@ -64,6 +75,7 @@ class BrowserContextWorker {
         }
         
         // Send success response
+        console.log(`[BrowserWorker] Sending response: id=${id}, success=true, hasData=${!!result}`);
         process.send({
           id,
           type: 'response',
@@ -73,6 +85,7 @@ class BrowserContextWorker {
         
       } catch (error) {
         // Send error response
+        console.error(`[BrowserWorker] Sending error response: id=${id}, error=${error.message}`);
         process.send({
           id,
           type: 'response',
@@ -94,7 +107,14 @@ class BrowserContextWorker {
     });
     
     // Auto-connect on startup
-    await this.connect();
+    console.log('[BrowserWorker] Attempting auto-connect on startup...');
+    try {
+      const connectResult = await this.connect();
+      console.log('[BrowserWorker] Auto-connect result:', connectResult);
+    } catch (error) {
+      console.error('[BrowserWorker] Auto-connect failed:', error.message);
+      console.error('[BrowserWorker] Stack trace:', error.stack);
+    }
     
     console.log('[BrowserWorker] Worker initialized and ready');
   }
@@ -105,12 +125,14 @@ class BrowserContextWorker {
   async connect() {
     try {
       // First try to connect to existing browser
-      console.log('[BrowserWorker] Attempting to connect to existing browser...');
+      console.log('[BrowserWorker] Attempting to connect to existing browser at localhost:9222...');
       const connected = await this.service.connectToExistingBrowser();
+      console.log('[BrowserWorker] Connection attempt result:', connected);
       
       if (!connected) {
         console.log('[BrowserWorker] No existing browser found, launching new instance...');
         const launched = await this.service.launchBrowser();
+        console.log('[BrowserWorker] Launch attempt result:', launched);
         
         if (!launched) {
           throw new Error('Failed to launch browser');
@@ -118,9 +140,20 @@ class BrowserContextWorker {
         
         // Navigate to a blank page for testing
         if (this.service.activePage) {
+          console.log('[BrowserWorker] Navigating to about:blank for testing...');
           await this.service.activePage.goto('about:blank');
+          console.log('[BrowserWorker] Navigation complete');
+        } else {
+          console.warn('[BrowserWorker] No active page available after launch');
         }
       }
+      
+      // Log connection details
+      console.log('[BrowserWorker] Service connection status:', {
+        isConnected: this.service.isConnected,
+        hasActivePage: !!this.service.activePage,
+        hasBrowser: !!this.service.browser
+      });
       
       this.isInitialized = true;
       this.reconnectAttempts = 0;
@@ -130,7 +163,8 @@ class BrowserContextWorker {
       
       return {
         connected: true,
-        mode: connected ? 'existing' : 'launched'
+        mode: connected ? 'existing' : 'launched',
+        hasActivePage: !!this.service.activePage
       };
       
     } catch (error) {
@@ -164,19 +198,40 @@ class BrowserContextWorker {
    * Get element at specific coordinates
    */
   async getElementAtPoint(x, y) {
+    console.log(`[BrowserWorker] getElementAtPoint called with x=${x}, y=${y}`);
+    
     if (!this.service.isConnected) {
+      console.error('[BrowserWorker] Browser not connected, cannot get element');
       throw new Error('Browser not connected');
     }
     
+    if (!this.service.activePage) {
+      console.error('[BrowserWorker] No active page available');
+      throw new Error('No active page available');
+    }
+    
     try {
+      console.log('[BrowserWorker] Calling service.getElementAtPoint...');
       const element = await this.service.getElementAtPoint(x, y);
+      console.log('[BrowserWorker] Element result from service:', element ? 'Element found' : 'No element');
       
       if (!element) {
+        console.log('[BrowserWorker] No element found at coordinates');
         return null;
       }
       
+      // Log element details
+      console.log('[BrowserWorker] Element details:', {
+        tag: element.tag,
+        hasSelectors: !!element.selectors,
+        selector: element.selectors?.css,
+        text: element.selectors?.text?.substring(0, 50)
+      });
+      
       // Also get page context for complete information
+      console.log('[BrowserWorker] Getting page context...');
       const pageContext = await this.service.getPageContext();
+      console.log('[BrowserWorker] Page context:', pageContext ? `URL: ${pageContext.url}` : 'No context');
       
       return {
         element,

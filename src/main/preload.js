@@ -30,7 +30,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
     onMarkCompleted: (callback) => {
         ipcRenderer.on('mark:completed', (event, data) => callback(data));
     },
+    onMarkBeforePrompt: (callback) => {
+        ipcRenderer.on('mark-before:prompt', (event, data) => callback(data));
+    },
     getMarkStatus: () => ipcRenderer.invoke('mark:status'),
+    
+    // Generic invoke for new handlers
+    invoke: (channel, data) => ipcRenderer.invoke(channel, data),
     
     // Keyboard shortcuts
     onShortcut: (shortcut, callback) => {

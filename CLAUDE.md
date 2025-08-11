@@ -8,33 +8,45 @@ Process Capture Studio is an Electron-based RPA platform that captures user work
 
 ## Architecture
 
+### Process Architecture (Critical)
+The application uses a multi-process architecture to handle async operations:
+- **Main Process**: Electron main process handles IPC, window management, and spawns workers
+- **Renderer Process**: UI and user interaction
+- **Browser Worker Process**: Separate Node.js process (`browser-context-worker.js`) for Playwright operations
+  - Spawned via `fork()` to avoid Electron async conflicts
+  - Communicates via process IPC messages
+  - Handles all CDP/browser context operations
+
 ### Main Process (`src/main/`)
-- **main.js**: Application lifecycle, window management, IPC handlers, global shortcuts
-- **capture-service.js**: System-wide activity capture using uiohook-napi
+- **main.js**: Application lifecycle, window management, IPC handlers, global shortcuts, worker process spawning
+- **capture-service.js**: System-wide activity capture using uiohook-napi (mouse/keyboard hooks)
 - **browser-context-service.js**: Chrome DevTools Protocol integration for DOM context capture
-- **mark-before-handler.js**: Revolutionary pattern that captures intent BEFORE actions (cleaner data)
+- **browser-context-worker.js**: Separate process for Playwright operations (avoids Electron conflicts)
+- **mark-before-handler.js**: Revolutionary pattern that captures intent BEFORE actions
 - **window-manager.js**: Window state and behavior management
 - **preload.js**: Bridge between main and renderer processes
 
 ### Renderer Process (`src/renderer/`)
-- **app.js**: Main UI controller and state management (includes crypto.randomUUID polyfill)
-- **activity-tracker.js**: Displays captured activities in real-time
-- **chat-guide.js**: Interactive guide that asks for context and reasons
-- **process-engine.js**: Core data model for process nodes, branches, and automation export
-- **canvas-builder.js**: Visual process map rendering using Canvas API
+- **js/app.js**: Main UI controller and state management (includes crypto.randomUUID polyfill)
+- **js/activity-tracker.js**: Displays captured activities in real-time
+- **js/chat-guide.js**: Interactive guide that asks for context and reasons
+- **js/process-engine.js**: Core data model for process nodes, branches, and automation export
+- **js/canvas-builder.js**: Visual process map rendering using Canvas API
 
-### Key Communication Patterns
+### Communication Patterns
 - Main → Renderer: `mainWindow.webContents.send('event-name', data)`
 - Renderer → Main: `window.electronAPI.invoke('action-name', data)`
+- Main → Worker: `browserWorker.send({ id, type, data })`
+- Worker → Main: `process.send({ id, result, error })`
 - Activity flow: CaptureService → Main → Renderer → UI Components
-- Mark Before flow: User triggers → Prompt → Capture next action → Group events
+- Mark Before flow: User triggers → Prompt → Capture next 30s → Group events
 
 ## Development Commands
 
 ```bash
 # Install and setup
 npm install              # Install dependencies
-npm run rebuild          # Rebuild native modules (if uiohook-napi fails)
+npm run rebuild          # Rebuild native modules (REQUIRED if uiohook-napi fails)
 
 # Development
 npm run dev              # Development mode with auto-reload and DevTools
@@ -78,20 +90,6 @@ test/
 └── utils/         # Test utilities (event generators)
 ```
 
-## Key Technologies
-
-### Current Stack
-- **Electron 27**: Desktop framework
-- **uiohook-napi**: System-wide keyboard/mouse capture (coordinates only)
-- **active-win**: Active window information
-- **playwright**: Browser automation and CDP integration (partially integrated)
-
-### Recent Implementations
-1. **Mark Before Pattern**: Captures user intent before actions for cleaner data
-2. **Browser Context Service**: CDP connection for DOM element capture (in progress)
-3. **Activity Filtering**: Filters out Process Capture Studio's own activities
-4. **Crypto Polyfill**: Fallback for crypto.randomUUID in older browser contexts
-
 ## Global Shortcuts
 
 - `Ctrl+Shift+S` / `Cmd+Shift+S`: Start/stop capture
@@ -104,28 +102,30 @@ test/
 ### Main Process Handles
 - `capture:start/stop`: Control recording
 - `capture:mark`: Mark important moments
-- `mark-before:start`: Initialize Mark Before capture mode
+- `mark-before:start`: Initialize Mark Before capture mode (30s window)
 - `mark-before:complete`: Finalize grouped action capture
-- `browser:connect`: Attempt CDP connection to browser
+- `browser:connect`: Spawn worker and connect to browser via CDP
+- `browser:launch`: Launch new Chrome with debugging enabled
 - `browser:get-element`: Get DOM element at coordinates
-- `window:always-on-top`: Window pinning
-- `window:opacity`: Transparency control
+- `window:always-on-top`: Window pinning toggle
+- `window:opacity`: Transparency control (0.5-1.0)
 - `system:get-active-app`: Current application info
 - `export:save-file`: Save dialog and file writing
 
 ### Renderer Receives
-- `capture:activity`: New activity data
+- `capture:activity`: New activity data with coordinates
 - `mark-before:prompt`: Show Mark Before dialog
 - `mark-before:captured`: Grouped action data
 - `browser:element-found`: DOM element context data
+- `browser:status-changed`: Browser connection status updates
 - `shortcut:mark-important`: Global shortcut triggered
 - `shortcut:toggle-capture`: Start/stop from shortcut
 - `shortcut:export`: Quick export triggered
 
 ## Critical Patterns & Solutions
 
-### 1. Mark Before Pattern
-Revolutionary approach that prompts for intent BEFORE actions:
+### 1. Mark Before Pattern (Revolutionary)
+Captures intent BEFORE actions for cleaner data:
 ```javascript
 // Instead of: capture → guess intent
 // We do: declare intent → capture → group related events
@@ -133,16 +133,18 @@ markBeforeHandler.startMarkMode(description);
 // Captures next 30 seconds of activity as single grouped action
 ```
 
-### 2. Browser Context via CDP
-Connects to running Chrome/Edge for DOM context:
+### 2. Browser Context via Worker Process
+Separate process for async Playwright operations:
 ```javascript
-// Chrome must run with: --remote-debugging-port=9222
-await browserContextService.connectToExistingBrowser();
-const element = await browserContextService.getElementAtPoint(x, y);
+// Main process spawns worker
+browserWorker = fork(path.join(__dirname, 'browser-context-worker.js'));
+
+// Worker handles Playwright async operations
+// Avoids Electron main process conflicts
 ```
 
 ### 3. Crypto UUID Polyfill
-Handles older browser contexts without crypto.randomUUID:
+Handles older browser contexts:
 ```javascript
 if (!crypto.randomUUID) {
   crypto.randomUUID = function() {
@@ -156,7 +158,7 @@ if (!crypto.randomUUID) {
 ```
 
 ### 4. Self-Activity Filtering
-Prevents capturing Process Capture Studio's own UI interactions:
+Prevents capturing Process Capture Studio's own UI:
 ```javascript
 const isOwnProcess = activeApp?.name?.includes('Process Capture Studio') || 
                     activeApp?.owner?.name?.includes('Electron');
@@ -168,30 +170,30 @@ if (isOwnProcess) return; // Skip capture
 ProcessEngine manages nodes with:
 - **Action details**: Type, description, timestamp, duration
 - **Grouped events**: Mark Before pattern groups related keystrokes/clicks
-- **Element data**: Selectors, XPath, attributes, position (via CDP)
+- **Element data**: Selectors, XPath, attributes, position (via CDP when available)
 - **Context**: Application, window, URL, file paths
 - **Business logic**: Conditions, reasons, validation rules
 - **Branches**: Decision paths and alternatives
 
 ### Activity Data Evolution
 ```javascript
-// Basic (v1.0):
+// Basic (v1.0): Coordinates only
 { type: 'click', x: 100, y: 200, app: 'Chrome' }
 
-// With Mark Before (v1.1):
+// With Mark Before (v1.1): Intent grouping
 {
   type: 'grouped_action',
   description: 'Search for customer',
   events: [
-    { type: 'click', target: 'search_field' },
-    { type: 'keystroke', text: 'John Smith' },
+    { type: 'click', x: 453, y: 234 },
+    { type: 'keystroke', keys: 'John Smith' },
     { type: 'key', key: 'Enter' }
   ],
   duration: 3500,
-  context: { app: 'Chrome', url: 'crm.example.com' }
+  context: { app: 'Chrome' }
 }
 
-// Target with CDP (v2.0):
+// Target with CDP (v2.0): Full DOM context
 {
   type: 'click',
   coordinates: { x: 100, y: 200 },
@@ -212,25 +214,42 @@ ProcessEngine manages nodes with:
 
 ## Known Issues & Workarounds
 
-1. **uiohook-napi fails to build**: Run `npm run rebuild`
-2. **Keystrokes not captured on Mac**: Check accessibility permissions
-3. **Canvas performance with many nodes**: Implement virtualization (planned)
-4. **CDP connection fails**: Ensure Chrome runs with `--remote-debugging-port=9222`
-5. **Clear button crash**: Fixed with crypto.randomUUID polyfill
+1. **uiohook-napi fails to build**: 
+   - Run `npm run rebuild`
+   - May need: `npm install --build-from-source`
+
+2. **Keystrokes not captured on Mac**: 
+   - System Preferences → Security & Privacy → Privacy → Accessibility
+   - Add Terminal/VS Code AND Electron app
+
+3. **Browser context not working**:
+   - Click "Launch Capture Browser" button first
+   - Check worker process is running: `ps aux | grep browser-context-worker`
+   - Browser must have `--remote-debugging-port=9222`
+
+4. **Clear button crash**: 
+   - Fixed with crypto.randomUUID polyfill in app.js
+
+5. **Export not downloading**:
+   - Fixed in v1.0.0 - uses proper Electron save dialog
 
 ## Platform-Specific Notes
 
 ### macOS
-- Requires accessibility permissions (System Preferences → Security → Privacy)
-- May need screen recording permission
+- **Required Permissions**:
+  - Accessibility: System Preferences → Security & Privacy → Privacy → Accessibility
+  - Screen Recording: For enhanced browser capture
+  - Both Terminal/VS Code AND the Electron app need permissions
 - Hardened runtime with entitlements configured
 
 ### Windows
 - May require Administrator privileges for full capture
-- COM automation needed for Office integration (planned)
+- Windows Defender may flag uiohook-napi (false positive)
+- COM automation for Office planned
 
 ### Linux
-- User must be in `input` group for keystroke capture
+- User must be in `input` group: `sudo usermod -a -G input $USER`
+- Logout/login required after group change
 - AppImage format for distribution
 
 ## Development Workflow
@@ -244,39 +263,58 @@ ProcessEngine manages nodes with:
 6. Update export formats in `process-engine.js`
 
 ### Testing New Features
-1. Create test file: `test-[feature].js` in root for quick testing
-2. Add unit tests: `test/unit/[feature].test.js`
-3. Add integration tests: `test/integration/[feature]-flow.test.js`
-4. Run with: `npm test -- test/unit/[feature].test.js`
+1. Quick test: Create `test-[feature].js` in root
+2. Unit tests: `test/unit/[feature].test.js`
+3. Integration: `test/integration/[feature]-flow.test.js`
+4. Run specific: `npm test -- test/unit/[feature].test.js`
 
-## Quick Debugging Tips
+## Quick Debugging
 
 ```bash
-# Check if capture service is running
-# In DevTools console:
+# Check capture service status (DevTools console)
 await window.electronAPI.invoke('capture:status')
 
 # Test IPC communication
 window.electronAPI.invoke('system:get-active-app')
 
-# Monitor capture events
-# In main process console (npm run dev shows this)
+# Monitor capture events (npm run dev console)
 # Look for: "Capture activity:" logs
 
 # Test Mark Before flow
 window.electronAPI.invoke('mark-before:start', 'Test action')
 
-# Check CDP connection
-window.electronAPI.invoke('browser:connect')
+# Check browser worker
+ps aux | grep browser-context-worker
+
+# Launch capture browser
+window.electronAPI.invoke('browser:launch')
 
 # Force rebuild native modules
-rm -rf node_modules && npm install && npm run rebuild
+rm -rf node_modules package-lock.json
+npm install
+npm run rebuild
 ```
+
+## Export Formats
+
+The process engine exports to multiple formats:
+- **JSON**: Complete process data structure
+- **Playwright**: Browser automation code
+- **Python**: Desktop automation with pyautogui
+- **Markdown**: Human-readable documentation
+- **Mermaid**: Flowchart diagrams
+
+Export flow:
+1. User clicks Export → Opens format dialog
+2. Select format → Generate code
+3. Save dialog → Write to file
+4. File downloads to user's chosen location
 
 ## Security Considerations
 
-- Passwords are never stored (marked as credential fields only)
+- Passwords never stored (marked as credential fields only)
 - All data stored locally in app's userData directory
 - No cloud connectivity unless explicitly configured
 - Sensitive data can be blurred/excluded from capture
-- Process Capture Studio's own activities are filtered out
+- Process Capture Studio's own activities filtered out
+- Browser context runs in separate process for isolation
