@@ -1487,10 +1487,33 @@ class ProcessCaptureApp {
      * Export process in specified format
      */
     exportProcess(format) {
+        console.log(`📤 Export: Starting export in ${format} format`);
+        
+        // Check if we have data to export
+        if (!this.engine || this.engine.process.nodes.size === 0) {
+            console.warn('⚠️ Export: No data to export');
+            this.showNotification('No data to export. Capture some steps first!', 'warning');
+            const preview = document.getElementById('export-preview');
+            preview.value = 'No data captured yet. Start capturing to export.';
+            return;
+        }
+        
+        console.log(`📊 Export: Found ${this.engine.process.nodes.size} nodes to export`);
+        
+        // Get export data
         const exportData = this.engine.exportForAutomation(format);
+        console.log(`📤 Export: Generated export data, length: ${exportData ? exportData.length : 0}`);
+        
         const preview = document.getElementById('export-preview');
         
+        if (!exportData || exportData.trim() === '') {
+            console.error('❌ Export: Export data is empty!');
+            preview.value = 'Error: Export generated empty data. Please check the console.';
+            return;
+        }
+        
         preview.value = exportData;
+        console.log('✅ Export: Data displayed in preview');
         
         // Update selected button
         document.querySelectorAll('.export-option').forEach(btn => {
@@ -1502,24 +1525,60 @@ class ProcessCaptureApp {
      * Download export file
      */
     downloadExport() {
+        console.log('💾 Download: Starting download...');
+        
         const preview = document.getElementById('export-preview');
         const format = document.querySelector('.export-option.selected')?.dataset.format || 'json';
+        
+        console.log(`💾 Download: Format: ${format}`);
+        console.log(`💾 Download: Content length: ${preview.value.length}`);
+        
+        // Check if there's content to download
+        if (!preview.value || preview.value.trim() === '' || 
+            preview.value.includes('No data captured') || 
+            preview.value.includes('Error:')) {
+            console.error('❌ Download: No valid content to download');
+            this.showNotification('No valid data to download', 'error');
+            return;
+        }
         
         const extensions = {
             'json': 'json',
             'yaml': 'yaml',
             'mermaid': 'md',
             'playwright': 'js',
+            'python': 'py',
             'documentation': 'md'
         };
         
-        const blob = new Blob([preview.value], { type: 'text/plain' });
+        // Create proper MIME types
+        const mimeTypes = {
+            'json': 'application/json',
+            'yaml': 'text/yaml',
+            'mermaid': 'text/markdown',
+            'playwright': 'text/javascript',
+            'python': 'text/x-python',
+            'documentation': 'text/markdown'
+        };
+        
+        const mimeType = mimeTypes[format] || 'text/plain';
+        const extension = extensions[format] || 'txt';
+        const filename = `process-capture-${new Date().toISOString().slice(0, 19).replace(/[T:]/g, '-')}.${extension}`;
+        
+        console.log(`💾 Download: Creating file: ${filename}`);
+        
+        const blob = new Blob([preview.value], { type: mimeType });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `process-${Date.now()}.${extensions[format]}`;
+        a.download = filename;
+        document.body.appendChild(a); // Required for Firefox
         a.click();
+        document.body.removeChild(a); // Clean up
         URL.revokeObjectURL(url);
+        
+        console.log('✅ Download: File download initiated');
+        this.showNotification(`Downloaded: ${filename}`, 'success');
     }
 
     /**
@@ -1696,21 +1755,32 @@ class ProcessCaptureApp {
     /**
      * Show notification
      */
-    showNotification(message) {
-        // Simple notification (enhance with better UI)
+    showNotification(message, type = 'success') {
+        // Enhanced notification with different types
         const notification = document.createElement('div');
         notification.className = 'notification';
         notification.textContent = message;
+        
+        // Different colors for different types
+        const colors = {
+            'success': '#4CAF50',
+            'error': '#f44336',
+            'warning': '#ff9800',
+            'info': '#2196F3'
+        };
+        
         notification.style.cssText = `
             position: fixed;
             top: 20px;
             right: 20px;
-            background: #4CAF50;
+            background: ${colors[type] || colors.success};
             color: white;
             padding: 12px 20px;
             border-radius: 6px;
             z-index: 10000;
             animation: slideIn 0.3s;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
         `;
         
         document.body.appendChild(notification);

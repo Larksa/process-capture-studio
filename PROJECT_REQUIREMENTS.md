@@ -1,10 +1,10 @@
 # Process Capture Studio - Living Requirements
 
 ## 🚦 Current Status
-**Last Updated**: 2025-08-10 7:30 PM  
-**Phase**: Phase 4 - Testing & Refinement
-**Blocked By**: Need to fix internal click filtering and clear button visual update
-**Next Action**: Fix identified issues based on user testing feedback
+**Last Updated**: 2025-08-11 3:30 PM  
+**Phase**: Phase 5 - Export & Data Management
+**Blocked By**: Export functionality producing empty files
+**Next Action**: Fix JSON export and add download functionality
 
 ## 📊 Progress Overview
 - Total Tasks: 68 (added 3 fixes from user testing)
@@ -45,6 +45,9 @@
 - **[2025-08-10 5:15 PM]**: Browser context temporarily disabled due to Electron async conflict - need process separation
 - **[2025-08-10 7:00 PM]**: User testing revealed 3 key issues: Clear button visual, internal click filtering, mark step recording
 - **[2025-08-10 7:30 PM]**: Captured learnings in knowledge base - window bounds filtering pattern identified as solution
+- **[2025-08-11 2:00 PM]**: Successfully implemented Mark Before Pattern - captures intent BEFORE actions
+- **[2025-08-11 3:00 PM]**: Mark Before fully working with dialog, context capture, and process map integration
+- **[2025-08-11 3:30 PM]**: Export functionality issues identified - need to fix JSON export and add download
 
 ## 📋 Task Hierarchy
 
@@ -313,7 +316,64 @@
   - **Issue**: Records the marking action itself
   - **Solution**: Add flag to prevent capture during marking
 
-### Phase 5: AI Integration [0/6 tasks] - Next Sprint
+### Phase 5: Export & Data Management [0/8 tasks] - IN PROGRESS 🚀
+
+#### 5.1: Data Storage Architecture
+- **Current State**: Data saved to localStorage as 'process_capture_data'
+- **Format**: JSON with nodes (Map→Object), edges, metadata
+- **Issue**: Export produces empty files despite data being saved
+
+#### 5.2: Export Functionality Plan
+
+##### Immediate Fixes (NOW)
+- [ ] 5.2.1: Fix JSON export
+  - **Problem**: exportForAutomation returns empty/undefined
+  - **Solution**: Debug node Map conversion, ensure data exists
+  - **Deliverable**: Valid JSON export with all captured steps
+  
+- [ ] 5.2.2: Add download functionality
+  - **Problem**: No way to save exported file
+  - **Solution**: Implement browser download API
+  - **Deliverable**: Download button that saves .json file
+  
+- [ ] 5.2.3: Add export validation
+  - **Problem**: Can export even with no data
+  - **Solution**: Check nodes.size > 0 before export
+  - **Deliverable**: Disabled export when no data
+
+- [ ] 5.2.4: Debug logging
+  - **Problem**: Can't see what's being exported
+  - **Solution**: Console.log export data structure
+  - **Deliverable**: Clear visibility of export process
+
+##### Export Formats (Phase 2 - LATER)
+- [ ] 5.3: Playwright code generation
+  - **Purpose**: Browser automation scripts
+  - **Format**: JavaScript with selectors
+  - **Use Case**: Web app automation
+  
+- [ ] 5.4: Python/Selenium generation
+  - **Purpose**: Cross-platform automation
+  - **Format**: Python with pyautogui/selenium
+  - **Use Case**: Desktop + web automation
+
+- [ ] 5.5: Documentation export
+  - **Purpose**: Human-readable process docs
+  - **Format**: Markdown with screenshots
+  - **Use Case**: Training materials, SOPs
+
+- [ ] 5.6: Mermaid diagram export
+  - **Purpose**: Visual process flowcharts
+  - **Format**: Mermaid syntax
+  - **Use Case**: Architecture documentation
+
+#### 5.3: Why NOT RPA Formats (UiPath/Blue Prism)
+- **Reason 1**: Proprietary formats require licensing
+- **Reason 2**: Our focus is code generation for developers
+- **Reason 3**: Open formats (JSON, Python, JS) are more flexible
+- **Decision**: Skip RPA tool formats, focus on developer-friendly exports
+
+### Phase 6: AI Integration [0/6 tasks] - Next Sprint
 - [ ] 5.1: Integrate Claude API for intelligent questioning
 - [ ] 5.2: Build context-aware prompt system
 - [ ] 5.3: Implement pattern recognition

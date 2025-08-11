@@ -293,44 +293,82 @@ class ProcessEngine {
      * Get automation-ready export
      */
     exportForAutomation(format = 'json') {
+        console.log('[Export] Starting export process...');
+        console.log('[Export] Current nodes count:', this.process.nodes.size);
+        console.log('[Export] Nodes map:', this.process.nodes);
+        
+        // Convert Map to Array properly
+        const nodesArray = Array.from(this.process.nodes.values());
+        console.log('[Export] Converted nodes array:', nodesArray);
+        
         const exportData = {
             process: {
                 id: this.process.id,
                 name: this.process.name,
                 version: this.process.version,
-                metadata: this.process.metadata
+                metadata: this.process.metadata,
+                createdAt: this.process.createdAt,
+                updatedAt: this.process.updatedAt
             },
-            nodes: Array.from(this.process.nodes.values()),
+            nodes: nodesArray,
             edges: this.process.edges,
-            dataFlow: this.analyzeDataFlow(),
-            credentials: this.extractCredentials(),
-            files: this.extractFileOperations(),
-            validation: this.extractValidationRules(),
-            implementation: {
-                playwright: this.generatePlaywrightCode(),
-                python: this.generatePythonCode(),
-                documentation: this.generateDocumentation()
+            statistics: {
+                totalNodes: nodesArray.length,
+                totalEdges: this.process.edges.length,
+                exportedAt: new Date().toISOString()
             }
         };
         
+        console.log('[Export] Export data structure:', exportData);
+        
         switch (format) {
             case 'json':
-                return JSON.stringify(exportData, null, 2);
+                const jsonString = JSON.stringify(exportData, null, 2);
+                console.log('[Export] JSON string length:', jsonString.length);
+                return jsonString;
             case 'yaml':
-                return this.toYAML(exportData);
+                // TODO: Implement YAML export
+                return '# YAML export not yet implemented\n' + JSON.stringify(exportData, null, 2);
             case 'mermaid':
-                return this.toMermaid();
+                // TODO: Implement Mermaid export
+                return this.generateBasicMermaid();
             case 'playwright':
-                return exportData.implementation.playwright;
+                return this.generatePlaywrightCode();
             case 'python':
-                return exportData.implementation.python;
+                return this.generatePythonCode();
             case 'documentation':
-                return exportData.implementation.documentation;
+                return this.generateDocumentation();
             default:
-                return exportData;
+                console.log('[Export] Returning raw export data');
+                return JSON.stringify(exportData, null, 2);
         }
     }
 
+    /**
+     * Generate basic Mermaid diagram
+     */
+    generateBasicMermaid() {
+        let mermaid = 'graph TD\n';
+        const nodes = Array.from(this.process.nodes.values());
+        
+        if (nodes.length === 0) {
+            return 'graph TD\n    A[No steps captured yet]';
+        }
+        
+        nodes.forEach((node, index) => {
+            const label = node.description || node.action?.description || `Step ${index + 1}`;
+            const sanitizedLabel = label.replace(/"/g, "'");
+            mermaid += `    ${node.id}["${sanitizedLabel}"]\n`;
+            
+            if (index > 0) {
+                const prevNode = nodes[index - 1];
+                mermaid += `    ${prevNode.id} --> ${node.id}\n`;
+            }
+        });
+        
+        return mermaid;
+    }
+    
     /**
      * Generate Playwright automation code
      */
@@ -619,6 +657,132 @@ execute${this.toCamelCase(this.process.name)}().catch(console.error);
         }
         
         return rules;
+    }
+
+    /**
+     * Generate Python automation code
+     */
+    generatePythonCode() {
+        let code = `#!/usr/bin/env python3
+# Auto-generated Python automation
+# Process: ${this.process.name}
+# Generated: ${new Date().toISOString()}
+
+import time
+import pyautogui
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+
+def execute_${this.toCamelCase(this.process.name)}():
+    """Execute the captured process"""
+    
+    # Initialize browser if needed
+    driver = None
+    
+`;
+        
+        const sortedNodes = this.topologicalSort();
+        
+        for (const node of sortedNodes) {
+            code += this.nodeToPythonCode(node);
+        }
+        
+        code += `
+    # Cleanup
+    if driver:
+        driver.quit()
+    
+    print("Process completed successfully!")
+
+if __name__ == "__main__":
+    execute_${this.toCamelCase(this.process.name)}()
+`;
+        
+        return code;
+    }
+    
+    /**
+     * Convert a single node to Python code
+     */
+    nodeToPythonCode(node) {
+        let code = `    # Step ${node.step}: ${node.action.description}\n`;
+        
+        // Add wait if specified
+        if (node.timing.waitBefore) {
+            code += `    time.sleep(${node.timing.waitBefore / 1000})\n`;
+        }
+        
+        // Generate action code based on type
+        switch (node.action.type) {
+            case 'navigate':
+                const url = node.pageContext?.url || node.context?.url || node.action.url;
+                if (url) {
+                    code += `    if not driver:\n`;
+                    code += `        driver = webdriver.Chrome()\n`;
+                    code += `    driver.get('${url}')\n`;
+                }
+                break;
+                
+            case 'click':
+                if (node.element?.selectors) {
+                    // Use selenium for web elements
+                    const selector = node.element.selectors.id || 
+                                   node.element.selectors.css || 
+                                   node.element.selectors.xpath;
+                    
+                    if (selector) {
+                        code += `    element = WebDriverWait(driver, 10).until(\n`;
+                        code += `        EC.element_to_be_clickable((By.CSS_SELECTOR, '${selector}'))\n`;
+                        code += `    )\n`;
+                        code += `    element.click()\n`;
+                        
+                        if (node.element.selectors.text) {
+                            code += `    # Clicked: "${node.element.selectors.text}"\n`;
+                        }
+                    }
+                } else if (node.position) {
+                    // Use pyautogui for desktop clicks
+                    code += `    # Click at coordinates\n`;
+                    code += `    pyautogui.click(${node.position.x}, ${node.position.y})\n`;
+                }
+                break;
+                
+            case 'type':
+            case 'input':
+                if (node.dataFlow?.input) {
+                    const value = node.dataFlow.input.value || '';
+                    
+                    if (node.element?.selectors) {
+                        // Web typing
+                        const selector = node.element.selectors?.id || 
+                                       node.element.selectors?.css || 
+                                       node.element.selector;
+                        
+                        code += `    element = driver.find_element(By.CSS_SELECTOR, '${selector}')\n`;
+                        code += `    element.clear()\n`;
+                        code += `    element.send_keys('${value}')\n`;
+                    } else {
+                        // Desktop typing
+                        code += `    pyautogui.typewrite('${value}')\n`;
+                    }
+                }
+                break;
+                
+            case 'keystroke':
+                if (node.key) {
+                    const keys = node.key.split('+').map(k => k.trim().toLowerCase());
+                    code += `    pyautogui.hotkey(${keys.map(k => `'${k}'`).join(', ')})\n`;
+                }
+                break;
+                
+            case 'mark_important':
+                code += `    # Important: ${node.action.description || 'User marked this step as important'}\n`;
+                break;
+        }
+        
+        return code + '\n';
     }
 
     /**
