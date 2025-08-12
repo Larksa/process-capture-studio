@@ -1,0 +1,81 @@
+{
+  "name": "Process Capture Studio - Playwright MCP Test",
+  "description": "Validates capture and replay using MCP browser tools",
+  "mcpTools": [
+    "mcp__docker-mcp__browser_navigate",
+    "mcp__docker-mcp__browser_type",
+    "mcp__docker-mcp__browser_click",
+    "mcp__docker-mcp__browser_snapshot"
+  ],
+  "testScenarios": [
+    {
+      "name": "Simple Form Submission",
+      "actions": [
+        {
+          "tool": "mcp__docker-mcp__browser_navigate",
+          "params": {
+            "url": "https://example.com/form"
+          },
+          "expected": {
+            "type": "navigate",
+            "url": "https://example.com/form"
+          }
+        },
+        {
+          "tool": "mcp__docker-mcp__browser_type",
+          "params": {
+            "element": "Name input field",
+            "ref": "#name",
+            "text": "John Smith"
+          },
+          "expected": {
+            "type": "type",
+            "selector": "#name",
+            "value": "John Smith"
+          }
+        },
+        {
+          "tool": "mcp__docker-mcp__browser_type",
+          "params": {
+            "element": "Email input field",
+            "ref": "#email",
+            "text": "john@example.com"
+          },
+          "expected": {
+            "type": "type",
+            "selector": "#email",
+            "value": "john@example.com"
+          }
+        },
+        {
+          "tool": "mcp__docker-mcp__browser_click",
+          "params": {
+            "element": "Submit button",
+            "ref": "#submit"
+          },
+          "expected": {
+            "type": "click",
+            "selector": "#submit"
+          }
+        },
+        {
+          "tool": "mcp__docker-mcp__browser_snapshot",
+          "params": {},
+          "purpose": "Capture final state for validation"
+        }
+      ]
+    }
+  ],
+  "validation": {
+    "compareFunction": "function compareCaputureWithReplay(captured, replayed) {\n    const differences = [];\n    \n    // Compare each action\n    captured.nodes.forEach((node, i) => {\n      const replayNode = replayed.nodes?.[i];\n      if (!replayNode) {\n        differences.push(`Missing replay node at index ${i}`);\n        return;\n      }\n      \n      if (node.type !== replayNode.type) {\n        differences.push(`Type mismatch at index ${i}: ${node.type} vs ${replayNode.type}`);\n      }\n      \n      if (node.selector !== replayNode.selector) {\n        differences.push(`Selector mismatch at index ${i}: ${node.selector} vs ${replayNode.selector}`);\n      }\n      \n      if (node.value !== replayNode.value) {\n        differences.push(`Value mismatch at index ${i}: ${node.value} vs ${replayNode.value}`);\n      }\n    });\n    \n    return differences;\n  }",
+    "checklist": [
+      "Browser launches successfully",
+      "Navigation to form page works",
+      "Form fields are filled correctly",
+      "Submit button is clicked",
+      "Final state matches expected result",
+      "No errors during replay",
+      "Visual comparison passes (if using SmartUI MCP)"
+    ]
+  }
+}
