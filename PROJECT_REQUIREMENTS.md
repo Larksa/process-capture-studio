@@ -1,15 +1,16 @@
 # Process Capture Studio - Living Requirements
 
 ## 🚦 Current Status
-**Last Updated**: 2025-08-11 11:00 PM  
+**Last Updated**: 2025-08-12 4:20 PM  
 **Phase**: Phase 1 COMPLETE - Intent-First Pattern Working! 
-**Blocked By**: Nothing - Successfully tested with ActiveCampaign!
-**Next Action**: Implement completion options (Done/Extend/Review) and fix export generation
+**Blocked By**: Nothing - MCP Testing Complete, Cookie Persistence Next!
+**Next Action**: 🍪 PRIORITY: Implement Cookie/Session Persistence for replay (see Phase 7)
 
 ## 📊 Progress Overview
-- Total Tasks: 88 (added Phase 0/1 implementation tasks)
-- Completed: 75 (85.2%)
-- In Progress: 8 (Phase 6 - Enhanced Export)
+- Total Tasks: 94 (added Phase 7 - Cookie/Session Persistence)
+- Completed: 75 (79.8%)
+- In Progress: 0
+- Pending: 6 (Phase 7 - Cookie Persistence PRIORITY)
 - Discovered: 33 (tasks found during work)
 - Failed Attempts: 4 (EPIPE resolved, Playwright async resolved with worker process)
 
@@ -696,9 +697,95 @@ Activity Event
 - Python automation scripts ready to run!
 - Debug logging makes troubleshooting easy!
 
+## 🍪 Phase 7: Cookie/Session Persistence [PRIORITY - NEXT SESSION]
+
+### Overview
+**Problem**: Captured workflows lose authentication state on replay
+**Solution**: Implement Playwright's `storageState` pattern to save/load browser sessions
+**Priority**: HIGH - First task for next session (2025-08-12 evening)
+
+### Tasks [0/6 tasks]
+- [ ] 7.1: Add session capture to browser-context-service.js
+  - **Estimate**: 1h
+  - **Details**: 
+    - Add `saveSessionState()` method using `context.storageState()`
+    - Add `loadSessionState(state)` method for replay
+    - Store cookies, localStorage, sessionStorage
+  
+- [ ] 7.2: Integrate session state into ProcessEngine export
+  - **Estimate**: 1h
+  - **Details**:
+    - Include sessionState in export data structure
+    - Add to JSON, YAML exports
+    - Generate session file alongside Playwright code
+  
+- [ ] 7.3: Update Playwright code generation
+  - **Estimate**: 30m
+  - **Details**:
+    - Add `storageState: './session-state.json'` to context creation
+    - Generate separate session file or inline state
+    - Add comments explaining session usage
+  
+- [ ] 7.4: Add UI controls for session management
+  - **Estimate**: 1h
+  - **Details**:
+    - "Save Session" button in capture UI
+    - "Load Session" option when starting
+    - Visual indicator when session is loaded
+    - Clear session option
+  
+- [ ] 7.5: Test with authenticated websites
+  - **Estimate**: 1h
+  - **Details**:
+    - Test with GitHub (login persistence)
+    - Test with The Australian (cookie consent)
+    - Test with Gmail or other 2FA sites
+    - Verify replay bypasses login
+  
+- [ ] 7.6: Document session security considerations
+  - **Estimate**: 30m
+  - **Details**:
+    - Add warnings about sensitive cookies
+    - Explain session expiry
+    - Best practices for sharing replays
+
+### Implementation Notes
+```javascript
+// Example implementation in browser-context-service.js
+async saveSessionState() {
+    if (!this.activePage) return null;
+    const context = this.activePage.context();
+    const state = await context.storageState();
+    // Save to file or return for storage
+    return state;
+}
+
+async loadSessionState(statePath) {
+    const context = await this.browser.newContext({
+        storageState: statePath  // or inline state object
+    });
+    this.activePage = await context.newPage();
+    return true;
+}
+```
+
+### Expected Benefits
+- ✅ Replays work on authenticated sites
+- ✅ Skip cookie consent dialogs
+- ✅ Bypass complex login flows (2FA, SSO)
+- ✅ Test scenarios work consistently
+- ✅ Match professional RPA tool capabilities
+
+### Success Criteria
+- The Australian website loads without cookie banner on replay
+- GitHub actions can be replayed while logged in
+- Session state is included in exports
+- Clear documentation on security implications
+
 ## 📝 Notes for Next Session
 
-- Focus on Electron integration
+- 🍪 **START HERE**: Implement Cookie/Session Persistence (Phase 7)
+- Focus on Electron integration improvements
 - Test iohook on different OS
 - Consider Electron Forge for builds
 - Look into code signing requirements
