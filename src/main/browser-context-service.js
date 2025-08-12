@@ -18,49 +18,60 @@ class BrowserContextService {
    * Chrome must be running with --remote-debugging-port=9222
    */
   async connectToExistingBrowser() {
-    console.log('[BrowserService] Attempting CDP connection to http://localhost:9222');
+    const addresses = [
+      'http://127.0.0.1:9222',  // Try IPv4 first (more common)
+      'http://localhost:9222',   // Then localhost (might resolve to IPv6)
+      'http://[::1]:9222'        // Finally try IPv6 explicitly
+    ];
     
-    try {
-      // Try to connect to Chrome DevTools Protocol
-      console.log('[BrowserService] Calling chromium.connectOverCDP...');
-      this.browser = await chromium.connectOverCDP('http://localhost:9222');
-      this.isConnected = true;
-      console.log('[BrowserService] Successfully connected to Chrome via CDP');
+    for (const address of addresses) {
+      console.log(`[BrowserService] Attempting CDP connection to ${address}`);
       
-      // Get all contexts (browser windows)
-      const contexts = this.browser.contexts();
-      console.log(`[BrowserService] Found ${contexts.length} browser contexts`);
+      try {
+        // Try to connect to Chrome DevTools Protocol
+        console.log('[BrowserService] Calling chromium.connectOverCDP...');
+        this.browser = await chromium.connectOverCDP(address);
+        this.isConnected = true;
+        console.log(`[BrowserService] Successfully connected to Chrome via CDP at ${address}`);
       
-      if (contexts.length > 0) {
-        // Get all pages from first context
-        const pages = await contexts[0].pages();
-        console.log(`[BrowserService] Found ${pages.length} pages in first context`);
+        // Get all contexts (browser windows)
+        const contexts = this.browser.contexts();
+        console.log(`[BrowserService] Found ${contexts.length} browser contexts`);
         
-        if (pages.length > 0) {
-          this.activePage = pages[0];
-          const pageUrl = await this.activePage.url();
-          const pageTitle = await this.activePage.title();
-          console.log(`[BrowserService] Set active page: URL=${pageUrl}, Title=${pageTitle}`);
+        if (contexts.length > 0) {
+          // Get all pages from first context
+          const pages = await contexts[0].pages();
+          console.log(`[BrowserService] Found ${pages.length} pages in first context`);
           
-          // Start monitoring pages
-          await this.monitorPages();
-          console.log('[BrowserService] Page monitoring started');
+          if (pages.length > 0) {
+            this.activePage = pages[0];
+            const pageUrl = await this.activePage.url();
+            const pageTitle = await this.activePage.title();
+            console.log(`[BrowserService] Set active page: URL=${pageUrl}, Title=${pageTitle}`);
+            
+            // Start monitoring pages
+            await this.monitorPages();
+            console.log('[BrowserService] Page monitoring started');
+          } else {
+            console.warn('[BrowserService] No pages found in browser context');
+          }
         } else {
-          console.warn('[BrowserService] No pages found in browser context');
+          console.warn('[BrowserService] No browser contexts found');
         }
-      } else {
-        console.warn('[BrowserService] No browser contexts found');
+        
+        console.log('[BrowserService] Connected to existing browser via CDP successfully');
+        return true;
+      } catch (error) {
+        console.log(`[BrowserService] Failed to connect to ${address}: ${error.message}`);
+        // Continue to next address
       }
-      
-      console.log('[BrowserService] Connected to existing browser via CDP successfully');
-      return true;
-    } catch (error) {
-      console.error('[BrowserService] Failed to connect to existing browser:', error.message);
-      console.error('[BrowserService] Error type:', error.constructor.name);
-      console.error('[BrowserService] Stack:', error.stack);
-      console.log('[BrowserService] Make sure Chrome is running with: --remote-debugging-port=9222');
-      return false;
     }
+    
+    // If we get here, all connection attempts failed
+    console.log('[BrowserService] All CDP connection attempts failed');
+    console.log('[BrowserService] Make sure Chrome is running with: --remote-debugging-port=9222');
+    this.isConnected = false;
+    return false;
   }
 
   /**

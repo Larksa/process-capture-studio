@@ -400,11 +400,9 @@ class ProcessEngine {
                 console.log('[Export] JSON string length:', jsonString.length);
                 return jsonString;
             case 'yaml':
-                // TODO: Implement YAML export
-                return '# YAML export not yet implemented\n' + JSON.stringify(exportData, null, 2);
+                return this.generateYAMLExport(exportData);
             case 'mermaid':
-                // TODO: Implement Mermaid export
-                return this.generateBasicMermaid();
+                return this.generateMermaidDiagram();
             case 'playwright':
                 return this.generatePlaywrightCode();
             case 'puppeteer':
@@ -447,6 +445,176 @@ class ProcessEngine {
     }
     
     /**
+     * Generate YAML export
+     */
+    generateYAMLExport(exportData) {
+        let yaml = `# Process Capture Studio Export
+# Generated: ${new Date().toISOString()}
+# Process: ${this.process.name}
+
+process:
+  name: ${this.process.name}
+  description: ${this.process.description || 'Captured workflow'}
+  created: ${this.process.createdAt}
+  version: 1.0.0
+
+metadata:
+  captureStarted: ${exportData.metadata?.captureStarted || 'N/A'}
+  captureEnded: ${exportData.metadata?.captureEnded || 'N/A'}
+  totalActions: ${exportData.nodes?.length || 0}
+  hasMarkBefore: ${exportData.metadata?.hasMarkBefore || false}
+
+nodes:
+`;
+        
+        // Add each node
+        exportData.nodes?.forEach((node, index) => {
+            yaml += `  - step: ${index + 1}\n`;
+            yaml += `    type: ${node.type}\n`;
+            
+            if (node.description) {
+                yaml += `    description: "${node.description}"\n`;
+            }
+            
+            if (node.action) {
+                yaml += `    action:\n`;
+                yaml += `      type: ${node.action.type}\n`;
+                if (node.action.description) {
+                    yaml += `      description: "${node.action.description}"\n`;
+                }
+            }
+            
+            if (node.selector) {
+                yaml += `    selector: "${node.selector}"\n`;
+            }
+            
+            if (node.element) {
+                yaml += `    element:\n`;
+                if (node.element.tagName) yaml += `      tag: ${node.element.tagName}\n`;
+                if (node.element.id) yaml += `      id: ${node.element.id}\n`;
+                if (node.element.className) yaml += `      class: ${node.element.className}\n`;
+                if (node.element.text) yaml += `      text: "${node.element.text.substring(0, 50)}"\n`;
+            }
+            
+            if (node.pageContext) {
+                yaml += `    context:\n`;
+                if (node.pageContext.url) yaml += `      url: ${node.pageContext.url}\n`;
+                if (node.pageContext.title) yaml += `      title: "${node.pageContext.title}"\n`;
+            }
+            
+            if (node.position) {
+                yaml += `    position:\n`;
+                yaml += `      x: ${node.position.x}\n`;
+                yaml += `      y: ${node.position.y}\n`;
+            }
+            
+            if (node.timestamp) {
+                yaml += `    timestamp: ${node.timestamp}\n`;
+            }
+            
+            yaml += '\n';
+        });
+        
+        // Add connections/edges if any
+        if (exportData.edges && exportData.edges.length > 0) {
+            yaml += `edges:\n`;
+            exportData.edges.forEach(edge => {
+                yaml += `  - from: ${edge.from}\n`;
+                yaml += `    to: ${edge.to}\n`;
+                if (edge.condition) {
+                    yaml += `    condition: "${edge.condition}"\n`;
+                }
+            });
+        }
+        
+        return yaml;
+    }
+
+    /**
+     * Generate Mermaid diagram
+     */
+    generateMermaidDiagram() {
+        let mermaid = `graph TD
+    %% Process: ${this.process.name}
+    %% Generated: ${new Date().toISOString()}
+    
+`;
+        
+        const nodes = Array.from(this.process.nodes.values());
+        const nodeMap = new Map();
+        
+        // Create node definitions
+        nodes.forEach((node, index) => {
+            const nodeId = `N${index}`;
+            nodeMap.set(node.id, nodeId);
+            
+            let label = node.description || node.action?.description || 'Action';
+            // Truncate long labels
+            if (label.length > 40) {
+                label = label.substring(0, 37) + '...';
+            }
+            
+            // Determine node shape based on type
+            let shape = '';
+            if (node.type === 'marked-action') {
+                shape = `${nodeId}[["${label}"]]`; // Double border for marked actions
+            } else if (node.type === 'preparation') {
+                shape = `${nodeId}{{"${label}"}}`; // Hexagon for preparation
+            } else if (node.type === 'decision') {
+                shape = `${nodeId}{"${label}"}`; // Diamond for decisions
+            } else if (node.type === 'click') {
+                shape = `${nodeId}("${label}")`; // Rounded for clicks
+            } else {
+                shape = `${nodeId}["${label}"]`; // Rectangle for default
+            }
+            
+            mermaid += `    ${shape}\n`;
+        });
+        
+        mermaid += '\n';
+        
+        // Add connections
+        const edges = Array.from(this.process.edges.values());
+        edges.forEach(edge => {
+            const fromId = nodeMap.get(edge.from);
+            const toId = nodeMap.get(edge.to);
+            
+            if (fromId && toId) {
+                if (edge.condition) {
+                    mermaid += `    ${fromId} -->|"${edge.condition}"| ${toId}\n`;
+                } else {
+                    mermaid += `    ${fromId} --> ${toId}\n`;
+                }
+            }
+        });
+        
+        // Add styling
+        mermaid += `
+    %% Styling
+    classDef marked fill:#f9f,stroke:#333,stroke-width:4px
+    classDef preparation fill:#fc9,stroke:#333,stroke-width:2px
+    classDef click fill:#9cf,stroke:#333,stroke-width:2px
+    classDef decision fill:#ffc,stroke:#333,stroke-width:2px
+`;
+        
+        // Apply styles to nodes
+        nodes.forEach((node, index) => {
+            const nodeId = `N${index}`;
+            if (node.type === 'marked-action') {
+                mermaid += `    class ${nodeId} marked\n`;
+            } else if (node.type === 'preparation') {
+                mermaid += `    class ${nodeId} preparation\n`;
+            } else if (node.type === 'click') {
+                mermaid += `    class ${nodeId} click\n`;
+            } else if (node.type === 'decision') {
+                mermaid += `    class ${nodeId} decision\n`;
+            }
+        });
+        
+        return mermaid;
+    }
+
+    /**
      * Generate Playwright automation code
      */
     generatePlaywrightCode() {
@@ -478,9 +646,17 @@ ${hasPreparationSteps ? `
         code += `const { chromium } = require('playwright');
 
 async function execute${this.toCamelCase(this.process.name)}() {
-    const browser = await chromium.launch({ headless: false });
-    const context = await browser.newContext();
+    const browser = await chromium.launch({ 
+        headless: false,
+        slowMo: 100  // Slow down actions for visibility
+    });
+    const context = await browser.newContext({
+        viewport: { width: 1280, height: 720 }
+    });
     const page = await context.newPage();
+    
+    // Set default timeout for all actions
+    page.setDefaultTimeout(30000);
     
 `;
         
@@ -507,7 +683,12 @@ execute${this.toCamelCase(this.process.name)}().catch(console.error);
     getBestSelector(element) {
         if (!element) return null;
         
-        // Priority: ID > name > CSS > XPath
+        // Handle selector string directly (from browser context capture)
+        if (typeof element === 'string') {
+            return element;
+        }
+        
+        // Priority: ID > data-testid > name > aria-label > CSS > text > XPath
         // Handle both old and new element formats
         if (element?.selectors?.id) {
             return element.selectors.id;
@@ -515,21 +696,39 @@ execute${this.toCamelCase(this.process.name)}().catch(console.error);
         if (element?.id) {
             return `#${element.id}`;
         }
+        
+        // Check for data-testid (common in modern apps)
+        if (element?.selectors?.attributes?.['data-testid']) {
+            return `[data-testid="${element.selectors.attributes['data-testid']}"]`;
+        }
+        
         if (element?.name) {
             return `[name="${element.name}"]`;
         }
+        
+        // Check for aria-label (good for accessibility)
+        if (element?.selectors?.attributes?.['aria-label']) {
+            return `[aria-label="${element.selectors.attributes['aria-label']}"]`;
+        }
+        
         if (element?.selectors?.css) {
             return element.selectors.css;
         }
         if (element?.selector) {
             return element.selector;
         }
+        
+        // Use text-based selector for buttons and links
+        if (element?.selectors?.text && element?.tagName) {
+            const tag = element.tagName.toLowerCase();
+            if (tag === 'button' || tag === 'a') {
+                return `text="${element.selectors.text}"`;
+            }
+            return `${tag}:has-text("${element.selectors.text}")`;
+        }
+        
         if (element?.selectors?.xpath) {
             return `xpath=${element.selectors.xpath}`;
-        }
-        // Handle selector string directly (from browser context capture)
-        if (typeof element === 'string') {
-            return element;
         }
         
         return null;
