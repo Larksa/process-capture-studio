@@ -346,6 +346,11 @@ class CanvasBuilder {
             <div class="node-title">${this.escapeHtml(nodeData.title || nodeData.action?.description || 'Untitled')}</div>
         `;
         
+        // Add sub-events for marked actions
+        if (nodeData.type === 'marked-action' || nodeData.type === 'grouped_action') {
+            content += this.renderSubEvents(nodeData);
+        }
+        
         if (nodeData.type === 'decision') {
             content += this.renderBranches(nodeData);
         } else if (nodeData.dataFlow) {
@@ -357,6 +362,103 @@ class CanvasBuilder {
         }
         
         return content;
+    }
+    
+    /**
+     * Render sub-events for marked actions
+     */
+    renderSubEvents(nodeData) {
+        const events = nodeData.events || nodeData.action?.events || nodeData.data?.events || [];
+        
+        if (events.length === 0) {
+            return '';
+        }
+        
+        let content = '<div class="node-sub-events">';
+        
+        // Show event count and duration
+        if (events.length > 0 || nodeData.duration) {
+            content += '<div class="event-summary">';
+            if (events.length > 0) {
+                content += `<span class="event-count">📊 ${events.length} events</span>`;
+            }
+            if (nodeData.duration) {
+                content += `<span class="event-duration">⏱️ ${(nodeData.duration / 1000).toFixed(1)}s</span>`;
+            }
+            content += '</div>';
+        }
+        
+        // Show up to 5 events (expandable later)
+        const eventsToShow = events.slice(0, 5);
+        if (eventsToShow.length > 0) {
+            content += '<div class="event-list">';
+            eventsToShow.forEach((event, index) => {
+                const icon = this.getEventIcon(event.type);
+                let eventText = '';
+                
+                if (event.type === 'click' || event.type === 'mousedown') {
+                    const coords = event.coordinates || event.position || { x: event.x, y: event.y };
+                    eventText = `Click at (${coords.x}, ${coords.y})`;
+                    if (event.element?.selector || event.element?.id) {
+                        const selector = event.element.selector || `#${event.element.id}`;
+                        eventText += ` on ${selector}`;
+                    }
+                } else if (event.type === 'keystroke' || event.type === 'typed_text') {
+                    const text = event.keys || event.key || event.text || '';
+                    if (text.length > 20) {
+                        eventText = `Type "${text.substring(0, 20)}..."`;
+                    } else {
+                        eventText = `Type "${text}"`;
+                    }
+                } else if (event.type === 'key') {
+                    eventText = `Press ${event.key}`;
+                } else if (event.type === 'navigation') {
+                    eventText = `Navigate to ${event.url || 'page'}`;
+                } else {
+                    eventText = event.type;
+                }
+                
+                content += `
+                    <div class="event-item">
+                        <span class="event-index">${index + 1}.</span>
+                        <span class="event-icon">${icon}</span>
+                        <span class="event-text">${this.escapeHtml(eventText)}</span>
+                    </div>
+                `;
+            });
+            
+            if (events.length > 5) {
+                content += `<div class="event-more">... and ${events.length - 5} more</div>`;
+            }
+            
+            content += '</div>';
+        }
+        
+        content += '</div>';
+        return content;
+    }
+    
+    /**
+     * Get icon for event type
+     */
+    getEventIcon(type) {
+        const icons = {
+            'click': '🖱️',
+            'mousedown': '🖱️',
+            'mouseup': '🖱️',
+            'keystroke': '⌨️',
+            'typed_text': '⌨️',
+            'key': '⌧',
+            'navigation': '🔗',
+            'scroll': '📜',
+            'file': '📁',
+            'copy': '📋',
+            'paste': '📋',
+            'screenshot': '📸',
+            'decision': '🔀',
+            'wait': '⏳'
+        };
+        return icons[type] || '•';
     }
 
     /**

@@ -18,6 +18,12 @@ class ActivityTracker {
         this.feedElement = document.getElementById('activity-feed');
         this.statusElement = document.getElementById('capture-status');
         
+        // Initialize terminal renderer
+        this.terminalRenderer = null;
+        if (typeof TerminalRenderer !== 'undefined') {
+            this.terminalRenderer = new TerminalRenderer(this.feedElement);
+        }
+        
         // Event handlers for browser context
         this.setupBrowserTracking();
         
@@ -367,6 +373,13 @@ class ActivityTracker {
      * Render activity in the feed
      */
     renderActivity(activity) {
+        // Use terminal renderer if available
+        if (this.terminalRenderer) {
+            this.terminalRenderer.renderActivity(activity);
+            return;
+        }
+        
+        // Fallback to original rendering
         const entry = document.createElement('div');
         entry.className = `activity-entry ${activity.isImportant ? 'important' : ''}`;
         entry.dataset.activityId = activity.timestamp;

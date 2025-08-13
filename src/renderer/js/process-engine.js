@@ -480,6 +480,10 @@ class ProcessEngine {
                 return this.generatePythonCode();
             case 'documentation':
                 return this.generateDocumentation();
+            case 'markdown':
+                return this.generateMarkdown();
+            case 'plaintext':
+                return this.generatePlainText();
             default:
                 console.log('[Export] Returning raw export data');
                 return JSON.stringify(exportData, null, 2);
@@ -2020,6 +2024,195 @@ ${Array.from(this.process.nodes.values()).map(node => `  - step: ${node.step}
         }
         
         return mermaid;
+    }
+    
+    /**
+     * Generate Markdown documentation with full context
+     */
+    generateMarkdown() {
+        const nodes = Array.from(this.process.nodes.values());
+        
+        let markdown = `# Process: ${this.process.name || 'Untitled Process'}\n\n`;
+        markdown += `**Generated**: ${new Date().toLocaleString()}\n`;
+        markdown += `**Total Steps**: ${nodes.length}\n\n`;
+        
+        // Add overview if we have nodes
+        if (nodes.length > 0) {
+            markdown += `## Overview\n\n`;
+            markdown += `This process captures ${nodes.length} steps of user workflow.\n\n`;
+        }
+        
+        // Add detailed steps
+        markdown += `## Detailed Steps\n\n`;
+        
+        nodes.forEach((node, index) => {
+            const stepNum = index + 1;
+            const title = node.action?.description || node.title || 'Untitled Step';
+            
+            markdown += `### Step ${stepNum}: ${title}\n\n`;
+            
+            // Add intent if it's a marked action
+            if (node.type === 'marked-action' || node.type === 'grouped_action') {
+                markdown += `**Intent**: ${title}\n`;
+                
+                const duration = node.duration || node.action?.duration;
+                if (duration) {
+                    markdown += `**Duration**: ${(duration / 1000).toFixed(1)} seconds\n`;
+                }
+                markdown += '\n';
+            }
+            
+            // Add context
+            if (node.context || node.action?.context) {
+                const ctx = node.context || node.action.context;
+                if (ctx.application) {
+                    markdown += `**Application**: ${ctx.application}\n`;
+                }
+                if (ctx.url) {
+                    markdown += `**URL**: ${ctx.url}\n`;
+                }
+                if (ctx.window) {
+                    markdown += `**Window**: ${ctx.window}\n`;
+                }
+                markdown += '\n';
+            }
+            
+            // Add actions/events
+            const events = node.events || node.action?.events || node.data?.events || [];
+            if (events.length > 0) {
+                markdown += `**Actions**:\n`;
+                events.forEach((event, eventIndex) => {
+                    const num = eventIndex + 1;
+                    
+                    if (event.type === 'click' || event.type === 'mousedown') {
+                        const coords = event.coordinates || event.position || { x: event.x, y: event.y };
+                        markdown += `${num}. Clicked at (${coords.x}, ${coords.y})`;
+                        if (event.element?.selector || event.element?.id) {
+                            const selector = event.element.selector || `#${event.element.id}`;
+                            markdown += ` on element: \`${selector}\``;
+                        }
+                        markdown += '\n';
+                    } else if (event.type === 'keystroke' || event.type === 'typed_text') {
+                        const text = event.keys || event.key || event.text || '';
+                        markdown += `${num}. Typed: "${text}"\n`;
+                    } else if (event.type === 'key') {
+                        markdown += `${num}. Pressed: ${event.key}\n`;
+                    } else if (event.type === 'navigation') {
+                        markdown += `${num}. Navigated to: ${event.url || 'new page'}\n`;
+                    } else {
+                        markdown += `${num}. ${event.type}\n`;
+                    }
+                });
+                markdown += '\n';
+            }
+            
+            // Add business logic/reason
+            if (node.logic?.reason || node.reason) {
+                const reason = node.logic?.reason || node.reason;
+                markdown += `**Context/Reason**: ${reason}\n\n`;
+            }
+            
+            // Add data flow
+            if (node.dataFlow) {
+                if (node.dataFlow.input) {
+                    markdown += `**Data Input**: ${node.dataFlow.input.source}`;
+                    if (node.dataFlow.input.sourceDetails) {
+                        markdown += ` - ${node.dataFlow.input.sourceDetails}`;
+                    }
+                    markdown += '\n';
+                }
+                if (node.dataFlow.output) {
+                    markdown += `**Data Output**: ${node.dataFlow.output.destination}\n`;
+                }
+                markdown += '\n';
+            }
+            
+            // Add decision branches if applicable
+            if (node.type === 'decision' && node.branches) {
+                markdown += `**Decision Branches**:\n`;
+                node.branches.forEach(branch => {
+                    markdown += `- If ${branch.condition}: ${branch.label}\n`;
+                });
+                markdown += '\n';
+            }
+            
+            markdown += '---\n\n';
+        });
+        
+        // Add automation notes
+        markdown += `## Automation Notes\n\n`;
+        markdown += `This process can be automated using:\n`;
+        markdown += `- **Playwright/Puppeteer**: For web browser automation\n`;
+        markdown += `- **Python/pyautogui**: For desktop application automation\n`;
+        markdown += `- **Selenium**: For cross-browser testing\n\n`;
+        
+        // Add captured session info if available
+        if (this.process.sessionState) {
+            markdown += `## Session Information\n\n`;
+            markdown += `⚠️ **Note**: This process includes captured authentication session data.\n`;
+            markdown += `The session allows replay without re-authentication.\n\n`;
+        }
+        
+        return markdown;
+    }
+    
+    /**
+     * Generate plain text summary
+     */
+    generatePlainText() {
+        const nodes = Array.from(this.process.nodes.values());
+        
+        let text = `PROCESS: ${this.process.name || 'Untitled Process'}\n`;
+        text += `Generated: ${new Date().toLocaleString()}\n`;
+        text += `Total Steps: ${nodes.length}\n`;
+        text += '=' .repeat(50) + '\n\n';
+        
+        nodes.forEach((node, index) => {
+            const stepNum = index + 1;
+            const title = node.action?.description || node.title || 'Untitled Step';
+            
+            text += `${stepNum}. ${title}\n`;
+            
+            // Add simple context
+            if (node.context || node.action?.context) {
+                const ctx = node.context || node.action.context;
+                if (ctx.application) {
+                    text += `   In: ${ctx.application}\n`;
+                }
+            }
+            
+            // Add simplified actions
+            const events = node.events || node.action?.events || node.data?.events || [];
+            if (events.length > 0) {
+                events.forEach((event) => {
+                    if (event.type === 'click' || event.type === 'mousedown') {
+                        text += `   - Click`;
+                        if (event.element?.selector || event.element?.text) {
+                            const identifier = event.element.text || event.element.selector;
+                            text += ` on ${identifier}`;
+                        }
+                        text += '\n';
+                    } else if (event.type === 'keystroke' || event.type === 'typed_text') {
+                        const content = event.keys || event.key || event.text || '';
+                        text += `   - Type "${content}"\n`;
+                    } else if (event.type === 'key') {
+                        text += `   - Press ${event.key}\n`;
+                    } else if (event.type === 'navigation') {
+                        text += `   - Go to ${event.url || 'new page'}\n`;
+                    }
+                });
+            }
+            
+            // Add reason if available
+            if (node.logic?.reason || node.reason) {
+                const reason = node.logic?.reason || node.reason;
+                text += `   Why: ${reason}\n`;
+            }
+            
+            text += '\n';
+        });
+        
+        return text;
     }
 }
 
