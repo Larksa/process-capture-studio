@@ -27,11 +27,14 @@ class ProcessEngine {
             nodes: new Map(),
             edges: [],
             currentNodeId: null,
+            sessionState: null,  // Browser session state (cookies, localStorage, sessionStorage)
+            sessionMetadata: null,  // Session capture metadata
             metadata: {
                 author: null,
                 description: null,
                 tags: [],
-                automationReady: false
+                automationReady: false,
+                hasAuthentication: false  // Track if session is captured
             }
         };
         
@@ -42,6 +45,64 @@ class ProcessEngine {
         this.hasUnsavedChanges = false;
         
         this.initializeStorage();
+    }
+    
+    /**
+     * Set session state for authenticated replay
+     * @param {Object} sessionState - The browser session state from Playwright
+     */
+    setSessionState(sessionState) {
+        if (!sessionState) {
+            console.warn('[ProcessEngine] Attempted to set null session state');
+            return false;
+        }
+        
+        // Ensure metadata object exists
+        if (!this.process.metadata) {
+            this.process.metadata = {
+                author: null,
+                description: null,
+                tags: [],
+                automationReady: false,
+                hasAuthentication: false
+            };
+        }
+        
+        this.process.sessionState = sessionState;
+        this.process.sessionMetadata = {
+            capturedAt: sessionState.metadata?.capturedAt || new Date().toISOString(),
+            domain: sessionState.metadata?.domain || 'unknown',
+            url: sessionState.metadata?.url || null,
+            cookieCount: sessionState.cookies?.length || 0,
+            originsCount: sessionState.origins?.length || 0
+        };
+        this.process.metadata.hasAuthentication = true;
+        
+        console.log(`[ProcessEngine] Session state set with ${this.process.sessionMetadata.cookieCount} cookies`);
+        console.log(`[ProcessEngine] Session covers ${this.process.sessionMetadata.originsCount} origins`);
+        
+        // Auto-save if enabled
+        if (this.autoSave) {
+            this.saveToStorage();
+        }
+        
+        return true;
+    }
+    
+    /**
+     * Clear session state
+     */
+    clearSessionState() {
+        this.process.sessionState = null;
+        this.process.sessionMetadata = null;
+        this.process.metadata.hasAuthentication = false;
+        
+        console.log('[ProcessEngine] Session state cleared');
+        
+        // Auto-save if enabled
+        if (this.autoSave) {
+            this.saveToStorage();
+        }
     }
 
     /**
@@ -57,11 +118,14 @@ class ProcessEngine {
             nodes: new Map(),
             edges: [],
             currentNodeId: null,
+            sessionState: null,  // Browser session state (cookies, localStorage, sessionStorage)
+            sessionMetadata: null,  // Session capture metadata
             metadata: {
                 author: null,
                 description: null,
                 tags: [],
-                automationReady: false
+                automationReady: false,
+                hasAuthentication: false  // Track if session is captured
             }
         };
         
@@ -383,11 +447,14 @@ class ProcessEngine {
                 createdAt: this.process.createdAt,
                 updatedAt: this.process.updatedAt
             },
+            sessionState: this.process.sessionState,  // Include complete browser session
+            sessionMetadata: this.process.sessionMetadata,  // Include session metadata
             nodes: nodesArray,
             edges: this.process.edges,
             statistics: {
                 totalNodes: nodesArray.length,
                 totalEdges: this.process.edges.length,
+                hasAuthentication: !!this.process.sessionState,
                 exportedAt: new Date().toISOString()
             }
         };
@@ -625,6 +692,7 @@ nodes:
         let code = `// Auto-generated Playwright automation
 // Process: ${this.process.name}
 // Generated: ${new Date().toISOString()}
+${this.process.sessionState ? `// ✅ Session included - will bypass login/cookies` : '// ⚠️ No session - may need manual login'}
 ${hasPreparationSteps ? `
 // NOTE: This process includes preparation steps that require manual information gathering.
 // Before running this automation, ensure you have:` : ''}
@@ -643,6 +711,15 @@ ${hasPreparationSteps ? `
             code += '\n';
         }
 
+        // Add session state if available
+        if (this.process.sessionState) {
+            code += `
+// Session state embedded in script (includes cookies, localStorage, sessionStorage)
+const sessionState = ${JSON.stringify(this.process.sessionState, null, 2)};
+
+`;
+        }
+
         code += `const { chromium } = require('playwright');
 
 async function execute${this.toCamelCase(this.process.name)}() {
@@ -650,9 +727,13 @@ async function execute${this.toCamelCase(this.process.name)}() {
         headless: false,
         slowMo: 100  // Slow down actions for visibility
     });
+    
+    // Create context with session state if available
     const context = await browser.newContext({
-        viewport: { width: 1280, height: 720 }
+        viewport: { width: 1280, height: 720 }${this.process.sessionState ? `,
+        storageState: sessionState  // Load authenticated session` : ''}
     });
+    
     const page = await context.newPage();
     
     // Set default timeout for all actions

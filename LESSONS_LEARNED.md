@@ -148,6 +148,80 @@
    - Use best selector at export time
    - Resilient to UI changes
 
+## 🏗️ Browser Architecture Evolution (2025-08-13)
+
+### The Two-Browser Problem Discovery
+**What Happened**: Session persistence implementation revealed conflicting browser systems:
+1. **Browser 1**: Playwright browser auto-launched by worker process (working)
+2. **Browser 2**: Chrome on port 9222 launched by "Launch Capture Browser" (failing)
+3. **Conflict**: Session capture tried to use Browser 2 which never connected
+
+**Root Cause Analysis**:
+- Historical evolution created two separate browser systems
+- Original: System-wide capture only (no browser)
+- Added: CDP on port 9222 for browser context
+- Problem: Electron couldn't handle Playwright async
+- Solution: Created worker process
+- Side effect: Worker launched its own Playwright browser
+- Result: Two browsers trying to coexist, confusing everything!
+
+### Port 9222 Conflicts
+**Discovery**: Shipping Dash automation tool also uses port 9222
+- Only one application can use a port at a time
+- Chrome debugging port is standard 9222
+- Multiple automation tools = port conflicts
+- Lesson: Check for port conflicts when debugging connection issues
+
+### Playwright vs CDP Connection Types
+**Key Learning**: Two different ways to connect to browsers:
+1. **Playwright Internal**: Direct connection, no port needed (like an intercom)
+2. **CDP via Port**: Network connection on port 9222 (like a phone line)
+- Playwright is more reliable but less standard
+- CDP is industry standard but requires port management
+
+## 🛤️ Architectural Evolution Path
+
+### Current State (Broken)
+```
+Electron UI → Launches Playwright browser (works)
+            → Tries to launch Chrome:9222 (fails)
+            → Session capture confused
+```
+
+### Phase 8: Quick Fix (Option 1)
+```
+Electron UI → Only Playwright browser
+            → Session capture uses Playwright
+            → Remove port 9222 code
+```
+
+### Phase 9: Add Python UI
+```
+Electron UI → Playwright browser (web capture)
+Python UI   → Desktop capture (files, Excel, apps)
+            → Both export to unified format
+```
+
+### Phase 10: Final Form (Option 3)
+```
+Python UI (Control Center)
+    ├── Chrome on port 9222 (single browser)
+    ├── Desktop capture
+    └── Unified export system
+```
+
+### Why This Evolution Makes Sense
+1. **Fix Now**: Get session persistence working (Phase 8)
+2. **Build Missing**: Add desktop capture capability (Phase 9)
+3. **Unify Later**: Clean architecture when all pieces exist (Phase 10)
+
+### Key Architectural Insights
+- **Don't mix**: Playwright async and Electron main process
+- **Worker processes**: Essential for browser automation in Electron
+- **Port management**: Critical for multi-tool environments
+- **Evolution**: Start simple, add features, then refactor
+- **User first**: Working beats perfect architecture
+
 ### Skills Progression in RPA Domain
 - **Browser Automation**: Intermediate → Advanced
 - **Desktop Automation**: Beginner → Intermediate  

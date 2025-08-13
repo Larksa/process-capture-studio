@@ -70,6 +70,30 @@ class BrowserContextWorker {
             console.log('[BrowserWorker] Status result:', result);
             break;
             
+          case 'saveSession':
+            console.log('[BrowserWorker] Handling saveSession request...');
+            result = await this.saveSession();
+            console.log('[BrowserWorker] Session saved:', result ? 'Success' : 'Failed');
+            break;
+            
+          case 'loadSession':
+            console.log('[BrowserWorker] Handling loadSession request...');
+            if (!data || !data.sessionState) {
+              throw new Error('loadSession requires sessionState data');
+            }
+            result = await this.loadSession(data.sessionState);
+            console.log('[BrowserWorker] Session loaded:', result ? 'Success' : 'Failed');
+            break;
+            
+          case 'refreshSession':
+            console.log('[BrowserWorker] Handling refreshSession request...');
+            if (!data || !data.sessionState) {
+              throw new Error('refreshSession requires sessionState data');
+            }
+            result = await this.refreshSession(data.sessionState);
+            console.log('[BrowserWorker] Session refreshed:', result ? 'Success' : 'Failed');
+            break;
+            
           default:
             throw new Error(`Unknown message type: ${type}`);
         }
@@ -111,9 +135,26 @@ class BrowserContextWorker {
     try {
       const connectResult = await this.connect();
       console.log('[BrowserWorker] Auto-connect result:', connectResult);
+      
+      // Send connection status event to main process
+      if (connectResult && connectResult.connected) {
+        console.log('[BrowserWorker] Notifying main process of successful connection');
+        process.send({
+          type: 'event',
+          event: 'connected',
+          data: connectResult
+        });
+      }
     } catch (error) {
       console.error('[BrowserWorker] Auto-connect failed:', error.message);
       console.error('[BrowserWorker] Stack trace:', error.stack);
+      
+      // Send connection failure event
+      process.send({
+        type: 'event',
+        event: 'connection_failed',
+        data: { error: error.message }
+      });
     }
     
     console.log('[BrowserWorker] Worker initialized and ready');
@@ -124,28 +165,23 @@ class BrowserContextWorker {
    */
   async connect() {
     try {
-      // First try to connect to existing browser
-      console.log('[BrowserWorker] Attempting to connect to existing browser at localhost:9222...');
-      const connected = await this.service.connectToExistingBrowser();
-      console.log('[BrowserWorker] Connection attempt result:', connected);
+      // Always launch a new Playwright browser instance
+      // This avoids conflicts with port 9222 and other tools
+      console.log('[BrowserWorker] Launching Playwright browser instance...');
+      const launched = await this.service.launchBrowser();
+      console.log('[BrowserWorker] Launch attempt result:', launched);
       
-      if (!connected) {
-        console.log('[BrowserWorker] No existing browser found, launching new instance...');
-        const launched = await this.service.launchBrowser();
-        console.log('[BrowserWorker] Launch attempt result:', launched);
-        
-        if (!launched) {
-          throw new Error('Failed to launch browser');
-        }
-        
-        // Navigate to a blank page for testing
-        if (this.service.activePage) {
-          console.log('[BrowserWorker] Navigating to about:blank for testing...');
-          await this.service.activePage.goto('about:blank');
-          console.log('[BrowserWorker] Navigation complete');
-        } else {
-          console.warn('[BrowserWorker] No active page available after launch');
-        }
+      if (!launched) {
+        throw new Error('Failed to launch browser');
+      }
+      
+      // Navigate to a blank page for testing
+      if (this.service.activePage) {
+        console.log('[BrowserWorker] Navigating to about:blank for testing...');
+        await this.service.activePage.goto('about:blank');
+        console.log('[BrowserWorker] Navigation complete');
+      } else {
+        console.warn('[BrowserWorker] No active page available after launch');
       }
       
       // Log connection details
@@ -163,7 +199,7 @@ class BrowserContextWorker {
       
       return {
         connected: true,
-        mode: connected ? 'existing' : 'launched',
+        mode: 'launched',  // Always 'launched' since we removed existing browser connection
         hasActivePage: !!this.service.activePage
       };
       
@@ -190,6 +226,90 @@ class BrowserContextWorker {
       
     } catch (error) {
       console.error('[BrowserWorker] Disconnect failed:', error.message);
+      throw error;
+    }
+  }
+  
+  /**
+   * Save the current browser session state
+   */
+  async saveSession() {
+    console.log('[BrowserWorker] saveSession called');
+    
+    if (!this.service.isConnected) {
+      console.error('[BrowserWorker] Browser not connected, cannot save session');
+      throw new Error('Browser not connected');
+    }
+    
+    try {
+      const sessionState = await this.service.saveSessionState();
+      
+      if (!sessionState) {
+        console.error('[BrowserWorker] Failed to capture session state');
+        throw new Error('Failed to capture session state');
+      }
+      
+      console.log('[BrowserWorker] Session captured successfully');
+      return sessionState;
+      
+    } catch (error) {
+      console.error('[BrowserWorker] Save session failed:', error.message);
+      throw error;
+    }
+  }
+  
+  /**
+   * Load a saved browser session state
+   */
+  async loadSession(sessionState) {
+    console.log('[BrowserWorker] loadSession called');
+    
+    if (!this.service.browser) {
+      console.error('[BrowserWorker] Browser not available, cannot load session');
+      throw new Error('Browser not available');
+    }
+    
+    try {
+      const success = await this.service.loadSessionState(sessionState);
+      
+      if (!success) {
+        console.error('[BrowserWorker] Failed to load session state');
+        throw new Error('Failed to load session state');
+      }
+      
+      console.log('[BrowserWorker] Session loaded successfully');
+      return { loaded: true };
+      
+    } catch (error) {
+      console.error('[BrowserWorker] Load session failed:', error.message);
+      throw error;
+    }
+  }
+  
+  /**
+   * Refresh the current browser session (for mid-replay cookie refresh)
+   */
+  async refreshSession(sessionState) {
+    console.log('[BrowserWorker] refreshSession called');
+    
+    if (!this.service.browser) {
+      console.error('[BrowserWorker] Browser not available, cannot refresh session');
+      throw new Error('Browser not available');
+    }
+    
+    try {
+      const success = await this.service.refreshSessionState(sessionState);
+      
+      if (!success) {
+        console.error('[BrowserWorker] Failed to refresh session state');
+        throw new Error('Failed to refresh session state');
+      }
+      
+      console.log('[BrowserWorker] Session refreshed successfully');
+      return { refreshed: true };
+      
+    } catch (error) {
+      console.error('[BrowserWorker] Refresh session failed:', error.message);
       throw error;
     }
   }

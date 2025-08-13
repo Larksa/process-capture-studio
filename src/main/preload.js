@@ -75,11 +75,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
     saveFile: (data) => ipcRenderer.invoke('export:save-file', data),
     
     // Browser capture controls
-    launchCaptureBrowser: () => ipcRenderer.invoke('browser:launch-capture'),
+    // launchCaptureBrowser removed - using worker browser only
     getBrowserStatus: () => ipcRenderer.invoke('browser:get-status'),
     onBrowserStatusUpdate: (callback) => {
         ipcRenderer.on('browser:status-update', (event, data) => callback(data));
     },
+    
+    // Session management
+    captureSession: () => ipcRenderer.invoke('session:capture'),
+    loadSession: (sessionState) => ipcRenderer.invoke('session:load', sessionState),
+    refreshSession: (sessionState) => ipcRenderer.invoke('session:refresh', sessionState),
     
     // Platform detection
     platform: process.platform,

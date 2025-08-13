@@ -195,8 +195,14 @@ function initializeBrowserWorker() {
             console.log(`[Main] Browser worker event: ${event}`, data);
             
             // Notify renderer of important events
-            if (mainWindow && (event === 'reconnected' || event === 'connection_failed')) {
-                mainWindow.webContents.send('browser:status', { event, data });
+            if (mainWindow && (event === 'connected' || event === 'reconnected' || event === 'connection_failed')) {
+                console.log(`[Main] Sending browser status update to renderer: ${event}`);
+                mainWindow.webContents.send('browser:status-update', { 
+                    connected: event === 'connected' || event === 'reconnected',
+                    message: event === 'connected' ? 'Browser context connected' : 
+                             event === 'reconnected' ? 'Browser context reconnected' : 
+                             'Browser context connection failed'
+                });
             }
         }
     });
@@ -482,8 +488,9 @@ function setupIpcHandlers() {
         return null;
     });
     
-    // Launch capture browser
-    ipcMain.handle('browser:launch-capture', async () => {
+    // REMOVED: Launch capture browser - now using worker browser only
+    // The browser-context-worker launches Playwright browser on startup
+    /* ipcMain.handle('browser:launch-capture', async () => {
         const { exec } = require('child_process');
         const util = require('util');
         const http = require('http');
@@ -621,7 +628,7 @@ function setupIpcHandlers() {
             console.error('[Main] Failed to launch capture browser:', error);
             return { success: false, message: error.message };
         }
-    });
+    }); */
     
     // Get browser connection status
     ipcMain.handle('browser:get-status', async () => {
@@ -637,6 +644,63 @@ function setupIpcHandlers() {
             };
         } catch (error) {
             return { connected: false, message: error.message };
+        }
+    });
+    
+    // Save browser session state (cookies, localStorage, sessionStorage)
+    ipcMain.handle('session:capture', async () => {
+        console.log('[Main] Session capture requested');
+        
+        if (!browserWorker) {
+            console.error('[Main] Browser worker not initialized');
+            return { success: false, error: 'Browser not connected' };
+        }
+        
+        try {
+            const sessionState = await sendToBrowserWorker('saveSession');
+            console.log('[Main] Session captured successfully');
+            return { success: true, sessionState };
+        } catch (error) {
+            console.error('[Main] Failed to capture session:', error);
+            return { success: false, error: error.message };
+        }
+    });
+    
+    // Load browser session state
+    ipcMain.handle('session:load', async (event, sessionState) => {
+        console.log('[Main] Session load requested');
+        
+        if (!browserWorker) {
+            console.error('[Main] Browser worker not initialized');
+            return { success: false, error: 'Browser not connected' };
+        }
+        
+        try {
+            await sendToBrowserWorker('loadSession', { sessionState });
+            console.log('[Main] Session loaded successfully');
+            return { success: true };
+        } catch (error) {
+            console.error('[Main] Failed to load session:', error);
+            return { success: false, error: error.message };
+        }
+    });
+    
+    // Refresh browser session state (for mid-replay cookie refresh)
+    ipcMain.handle('session:refresh', async (event, sessionState) => {
+        console.log('[Main] Session refresh requested');
+        
+        if (!browserWorker) {
+            console.error('[Main] Browser worker not initialized');
+            return { success: false, error: 'Browser not connected' };
+        }
+        
+        try {
+            await sendToBrowserWorker('refreshSession', { sessionState });
+            console.log('[Main] Session refreshed successfully');
+            return { success: true };
+        } catch (error) {
+            console.error('[Main] Failed to refresh session:', error);
+            return { success: false, error: error.message };
         }
     });
 }

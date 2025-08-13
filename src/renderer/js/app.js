@@ -129,7 +129,9 @@ class ProcessCaptureApp {
             startCapture: document.getElementById('start-capture'),
             pauseCapture: document.getElementById('pause-capture'),
             stopCapture: document.getElementById('stop-capture'),
-            launchBrowser: document.getElementById('launch-browser'),
+            captureSession: document.getElementById('capture-session'),
+            clearSession: document.getElementById('clear-session'),
+            sessionIndicator: document.getElementById('session-indicator'),
             browserStatus: document.getElementById('browser-status-text'),
             saveProcess: document.getElementById('save-process'),
             clearCapture: document.getElementById('clear-capture'),
@@ -170,40 +172,89 @@ class ProcessCaptureApp {
             });
         }
         
-        // Launch capture browser button
-        if (this.elements.launchBrowser) {
-            this.elements.launchBrowser.addEventListener('click', async () => {
-                console.log('Launching capture browser...');
-                this.elements.launchBrowser.disabled = true;
-                this.elements.launchBrowser.textContent = '⏳ Launching...';
+        // Check browser status on startup and show session buttons if connected
+        this.checkBrowserStatus().then(() => {
+            // Browser status check will update UI appropriately
+        });
+        
+        // Capture session button
+        if (this.elements.captureSession) {
+            this.elements.captureSession.addEventListener('click', async () => {
+                // Security warning
+                const confirmed = confirm(
+                    '⚠️ Session Capture Security Notice:\n\n' +
+                    'This will capture ALL browser cookies and storage including:\n' +
+                    '• Authentication tokens\n' +
+                    '• Session cookies\n' +
+                    '• Local storage data\n\n' +
+                    'The exported file will contain sensitive data.\n' +
+                    'Only share with trusted parties.\n\n' +
+                    'Continue?'
+                );
+                
+                if (!confirmed) return;
+                
+                console.log('Capturing browser session...');
+                this.elements.captureSession.disabled = true;
+                this.elements.captureSession.textContent = '⏳ Capturing...';
                 
                 try {
-                    const result = await window.electronAPI.launchCaptureBrowser();
-                    if (result.success) {
-                        console.log('Capture browser launched successfully');
-                        this.elements.launchBrowser.textContent = '✅ Browser Launched';
+                    const result = await window.electronAPI.captureSession();
+                    
+                    if (result.success && result.sessionState) {
+                        // Store session in ProcessEngine
+                        const success = this.engine.setSessionState(result.sessionState);
                         
-                        // Check status after a moment
-                        setTimeout(async () => {
-                            await this.checkBrowserStatus();
-                            this.elements.launchBrowser.textContent = '🌐 Launch Capture Browser';
-                            this.elements.launchBrowser.disabled = false;
-                        }, 3000);
+                        if (success) {
+                            console.log('Session captured successfully');
+                            this.elements.captureSession.textContent = '✅ Session Captured';
+                            
+                            // Show session indicator
+                            if (this.elements.sessionIndicator) {
+                                this.elements.sessionIndicator.style.display = 'inline-block';
+                            }
+                            
+                            // Update UI
+                            this.showNotification('Session captured successfully! Your authentication state will be included in exports.', 'success');
+                            
+                            setTimeout(() => {
+                                this.elements.captureSession.textContent = '🍪 Capture Session';
+                                this.elements.captureSession.disabled = false;
+                            }, 2000);
+                        } else {
+                            throw new Error('Failed to store session state');
+                        }
                     } else {
-                        console.error('Failed to launch browser:', result.message);
-                        this.elements.launchBrowser.textContent = '❌ Launch Failed';
-                        setTimeout(() => {
-                            this.elements.launchBrowser.textContent = '🌐 Launch Capture Browser';
-                            this.elements.launchBrowser.disabled = false;
-                        }, 2000);
+                        throw new Error(result.error || 'Failed to capture session');
                     }
                 } catch (error) {
-                    console.error('Error launching browser:', error);
-                    this.elements.launchBrowser.textContent = '❌ Error';
+                    console.error('Error capturing session:', error);
+                    this.showNotification(`Failed to capture session: ${error.message}`, 'error');
+                    this.elements.captureSession.textContent = '❌ Capture Failed';
+                    
                     setTimeout(() => {
-                        this.elements.launchBrowser.textContent = '🌐 Launch Capture Browser';
-                        this.elements.launchBrowser.disabled = false;
+                        this.elements.captureSession.textContent = '🍪 Capture Session';
+                        this.elements.captureSession.disabled = false;
                     }, 2000);
+                }
+            });
+        }
+        
+        // Clear session button
+        if (this.elements.clearSession) {
+            this.elements.clearSession.addEventListener('click', () => {
+                const confirmed = confirm('Are you sure you want to clear the stored session?\n\nThis will remove authentication data from the export.');
+                
+                if (confirmed) {
+                    this.engine.clearSessionState();
+                    
+                    // Hide session indicator
+                    if (this.elements.sessionIndicator) {
+                        this.elements.sessionIndicator.style.display = 'none';
+                    }
+                    
+                    this.showNotification('Session cleared', 'info');
+                    console.log('Session cleared');
                 }
             });
         }
@@ -2208,11 +2259,34 @@ class ProcessCaptureApp {
     updateBrowserStatus(status) {
         if (this.elements.browserStatus) {
             if (status.connected) {
-                this.elements.browserStatus.textContent = '🟢 Browser: Enhanced Capture Active';
+                this.elements.browserStatus.textContent = '🟢 Context: Connected';
                 this.elements.browserStatus.style.color = '#28a745';
+                
+                // Show session buttons when browser is connected
+                if (this.elements.captureSession) {
+                    this.elements.captureSession.style.display = 'inline-block';
+                }
+                if (this.elements.clearSession) {
+                    this.elements.clearSession.style.display = 'inline-block';
+                }
+                
+                // Check if we have a session stored
+                if (this.engine && this.engine.process.sessionState) {
+                    if (this.elements.sessionIndicator) {
+                        this.elements.sessionIndicator.style.display = 'inline-block';
+                    }
+                }
             } else {
-                this.elements.browserStatus.textContent = '🔴 Browser: Basic Capture Only';
+                this.elements.browserStatus.textContent = '🔴 Context: Not Connected';
                 this.elements.browserStatus.style.color = '#dc3545';
+                
+                // Hide session buttons when not connected
+                if (this.elements.captureSession) {
+                    this.elements.captureSession.style.display = 'none';
+                }
+                if (this.elements.clearSession) {
+                    this.elements.clearSession.style.display = 'none';
+                }
             }
         }
     }

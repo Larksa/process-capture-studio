@@ -80,8 +80,8 @@ class BrowserContextService {
   async launchBrowser() {
     try {
       this.browser = await chromium.launch({
-        headless: false,
-        args: ['--remote-debugging-port=9222']
+        headless: false
+        // Removed --remote-debugging-port=9222 to avoid conflicts
       });
       
       const context = await this.browser.newContext();
@@ -341,6 +341,119 @@ class BrowserContextService {
     } catch (error) {
       console.error('Failed to capture screenshot:', error);
       return null;
+    }
+  }
+
+  /**
+   * Save the complete browser session state (cookies, localStorage, sessionStorage)
+   * This allows replaying workflows with authentication already in place
+   */
+  async saveSessionState() {
+    console.log('[BrowserService] saveSessionState called');
+    
+    if (!this.activePage) {
+      console.error('[BrowserService] No active page available for session capture');
+      return null;
+    }
+
+    try {
+      const context = this.activePage.context();
+      
+      // Capture complete browser state using Playwright's built-in storage_state
+      // This includes cookies, localStorage, and sessionStorage
+      const sessionState = await context.storageState();
+      
+      // Add metadata for tracking
+      const enhancedSession = {
+        ...sessionState,
+        metadata: {
+          capturedAt: new Date().toISOString(),
+          url: await this.activePage.url(),
+          title: await this.activePage.title(),
+          domain: new URL(await this.activePage.url()).hostname
+        }
+      };
+      
+      console.log(`[BrowserService] Session captured successfully with ${sessionState.cookies?.length || 0} cookies`);
+      console.log(`[BrowserService] Session includes ${sessionState.origins?.length || 0} origins with localStorage/sessionStorage`);
+      
+      return enhancedSession;
+    } catch (error) {
+      console.error('[BrowserService] Failed to save session state:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Load a previously saved session state into a new browser context
+   * @param {Object|string} sessionState - The session state object or path to session file
+   */
+  async loadSessionState(sessionState) {
+    console.log('[BrowserService] loadSessionState called');
+    
+    if (!this.browser) {
+      console.error('[BrowserService] No browser instance available');
+      return false;
+    }
+
+    try {
+      // Close existing context if any
+      if (this.activePage) {
+        const context = this.activePage.context();
+        await context.close();
+        console.log('[BrowserService] Closed existing context');
+      }
+
+      // Create new context with the saved session state
+      const context = await this.browser.newContext({
+        storageState: sessionState
+      });
+      
+      this.activePage = await context.newPage();
+      console.log('[BrowserService] Created new context with session state');
+      
+      // Navigate to a page to verify session is loaded
+      if (sessionState.metadata?.url) {
+        await this.activePage.goto(sessionState.metadata.url);
+        console.log(`[BrowserService] Navigated to ${sessionState.metadata.url} with session`);
+      }
+      
+      return true;
+    } catch (error) {
+      console.error('[BrowserService] Failed to load session state:', error);
+      return false;
+    }
+  }
+
+  /**
+   * Refresh the current session state (useful for mid-replay cookie refresh)
+   * @param {Object|string} sessionState - The session state to refresh with
+   */
+  async refreshSessionState(sessionState) {
+    console.log('[BrowserService] refreshSessionState called');
+    
+    if (!this.browser) {
+      console.error('[BrowserService] No browser instance available');
+      return false;
+    }
+
+    try {
+      // Save current URL to restore after refresh
+      const currentUrl = this.activePage ? await this.activePage.url() : null;
+      
+      // Load the new session state
+      const success = await this.loadSessionState(sessionState);
+      
+      // Navigate back to where we were if possible
+      if (success && currentUrl && this.activePage) {
+        await this.activePage.goto(currentUrl);
+        console.log(`[BrowserService] Refreshed session and returned to ${currentUrl}`);
+      }
+      
+      return success;
+    } catch (error) {
+      console.error('[BrowserService] Failed to refresh session state:', error);
+      return false;
     }
   }
 

@@ -106,12 +106,13 @@ npm run build
 - **Zoom & Pan**: Handle complex processes easily
 
 ### 🤖 Export for Automation
-- **Playwright**: Browser automation code
+- **Playwright**: Browser automation code with session persistence
 - **Python**: Desktop automation scripts
 - **Selenium**: Web testing code
 - **RPA**: UiPath/Blue Prism compatible
 - **Documentation**: Markdown process guides
 - **Mermaid**: Flowchart diagrams
+- **🍪 Session Persistence**: Capture and replay with authentication intact
 
 ## 💡 Use Cases
 
@@ -145,6 +146,46 @@ Capture data gathering from multiple sources:
 - Final report creation
 
 **Including all the "why" and "how" for future automation!**
+
+## 🍪 Session Persistence (Authentication Capture)
+
+Process Capture Studio can capture and replay authenticated sessions, allowing your automations to bypass login screens and work with authenticated applications.
+
+### How It Works
+1. **Launch Capture Browser**: Click "🌐 Launch Capture Browser" to start enhanced capture
+2. **Login to Your Application**: Navigate and login normally to your target website
+3. **Capture Session**: Click "🍪 Capture Session" to save cookies, localStorage, and sessionStorage
+4. **Continue Recording**: Record your workflow with authentication already in place
+5. **Export with Session**: Your exported automation includes the session state
+
+### Security Warning ⚠️
+
+**Session files contain sensitive authentication data** including:
+- Login cookies and tokens
+- Session storage data
+- Local storage contents
+- Authentication headers
+
+**Best Practices:**
+- Never commit session data to Git repositories
+- Treat exported JSON files as passwords
+- Only share with trusted parties
+- Sessions expire naturally based on website policies
+- Use "Clear Session" to remove stored authentication
+
+### Supported Sites
+- GitHub (with 2FA)
+- Google Workspace
+- Microsoft 365
+- Custom enterprise applications
+- Any site using cookie-based authentication
+
+### Technical Details
+The session persistence uses Playwright's `storageState` API to capture the complete browser state. This includes:
+- All cookies with their attributes (httpOnly, secure, sameSite)
+- localStorage for all origins
+- sessionStorage for all origins
+- Works across domains and subdomains
 
 ## 🎮 How to Use
 
