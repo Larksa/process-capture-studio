@@ -22,6 +22,20 @@ class CanvasBuilder {
         this.nodesContainer = document.getElementById('nodes-container');
         this.svg = document.getElementById('connections-svg');
         
+        // Check if required elements exist
+        if (!this.container) {
+            console.error('[CanvasBuilder] canvas-container element not found');
+            return;
+        }
+        if (!this.nodesContainer) {
+            console.error('[CanvasBuilder] nodes-container element not found');
+            return;
+        }
+        if (!this.svg) {
+            console.error('[CanvasBuilder] connections-svg element not found');
+            return;
+        }
+        
         this.nodes = new Map();
         this.connections = new Map();
         this.currentNodeId = null;
@@ -33,10 +47,59 @@ class CanvasBuilder {
         this.layout = new SmartLayout();
         this.animator = new NodeAnimator();
         
+        // Initialize SVG arrow markers
+        this.initializeSVGMarkers();
+        
         this.setupCanvas();
         this.setupControls();
         this.setupDragAndDrop();
         this.setupMinimap();
+        
+        console.log('[CanvasBuilder] Initialized successfully');
+        
+        // Add a test node to verify rendering (remove in production)
+        // this.addTestNode();
+    }
+    
+    /**
+     * Add a test node to verify canvas is working
+     */
+    addTestNode() {
+        const testNode = {
+            id: 'test-node-1',
+            type: 'step',
+            title: 'Test Node',
+            description: 'This is a test node to verify canvas rendering',
+            timestamp: Date.now()
+        };
+        
+        this.addNode(testNode);
+        console.log('[Canvas] Test node added');
+    }
+    
+    /**
+     * Initialize SVG arrow markers for connections
+     */
+    initializeSVGMarkers() {
+        if (!this.svg) return;
+        
+        const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
+        const marker = document.createElementNS('http://www.w3.org/2000/svg', 'marker');
+        
+        marker.setAttribute('id', 'arrowhead');
+        marker.setAttribute('markerWidth', '10');
+        marker.setAttribute('markerHeight', '10');
+        marker.setAttribute('refX', '9');
+        marker.setAttribute('refY', '3');
+        marker.setAttribute('orient', 'auto');
+        
+        const polygon = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+        polygon.setAttribute('points', '0 0, 10 3, 0 6');
+        polygon.setAttribute('fill', 'var(--accent-primary)');
+        
+        marker.appendChild(polygon);
+        defs.appendChild(marker);
+        this.svg.appendChild(defs);
     }
 
     /**
@@ -246,34 +309,76 @@ class CanvasBuilder {
      * Setup control buttons
      */
     setupControls() {
-        document.getElementById('zoom-in').addEventListener('click', () => {
-            this.setZoom(this.zoom * 1.2);
-        });
+        // Add null checks for all control elements
+        const zoomIn = document.getElementById('zoom-in');
+        if (zoomIn) {
+            zoomIn.addEventListener('click', () => {
+                this.setZoom(this.zoom * 1.2);
+            });
+        }
         
-        document.getElementById('zoom-out').addEventListener('click', () => {
-            this.setZoom(this.zoom * 0.8);
-        });
+        const zoomOut = document.getElementById('zoom-out');
+        if (zoomOut) {
+            zoomOut.addEventListener('click', () => {
+                this.setZoom(this.zoom * 0.8);
+            });
+        }
         
-        document.getElementById('zoom-fit').addEventListener('click', () => {
-            this.fitToScreen();
-        });
+        const zoomFit = document.getElementById('zoom-fit');
+        if (zoomFit) {
+            zoomFit.addEventListener('click', () => {
+                this.fitToScreen();
+            });
+        }
         
-        document.getElementById('toggle-minimap').addEventListener('click', () => {
-            document.getElementById('minimap').classList.toggle('hidden');
-        });
+        const toggleMinimap = document.getElementById('toggle-minimap');
+        if (toggleMinimap) {
+            toggleMinimap.addEventListener('click', () => {
+                const minimap = document.getElementById('minimap');
+                if (minimap) {
+                    minimap.classList.toggle('hidden');
+                }
+            });
+        }
     }
 
     /**
      * Add a new node to the canvas
      */
     addNode(nodeData) {
+        // Check if canvas is properly initialized
+        if (!this.nodesContainer || !this.layout) {
+            console.error('[Canvas] Cannot add node - canvas not properly initialized');
+            return null;
+        }
+        
+        // Only add completed steps to the visual map
+        // Step nodes are added when completed, regular nodes are always added
+        if (nodeData.type === 'step') {
+            console.log('[Canvas] Adding completed step node:', nodeData.title);
+        }
+        
         const node = this.createNodeElement(nodeData);
+        if (!node) {
+            console.error('[Canvas] Failed to create node element');
+            return null;
+        }
+        
         const position = this.layout.getPositionForNode(nodeData, this.nodes);
+        
+        // Log position for debugging
+        console.log('[Canvas] Node position:', position);
         
         node.style.left = position.x + 'px';
         node.style.top = position.y + 'px';
+        node.style.position = 'absolute'; // Ensure absolute positioning
         
         this.nodesContainer.appendChild(node);
+        
+        // Verify node was added to DOM
+        console.log('[Canvas] Node added to DOM:', node);
+        console.log('[Canvas] Node container children:', this.nodesContainer.children.length);
+        
         this.nodes.set(nodeData.id, {
             element: node,
             data: nodeData,
@@ -339,6 +444,28 @@ class CanvasBuilder {
      * Render node content based on type
      */
     renderNodeContent(nodeData) {
+        // Special rendering for step nodes
+        if (nodeData.type === 'step') {
+            const duration = nodeData.duration ? 
+                `${Math.floor(nodeData.duration / 1000)}s` : '';
+            const eventCount = nodeData.events ? nodeData.events.length : 0;
+            
+            return `
+                <div class="node-header step-node-header">
+                    📋 ${nodeData.title || 'Unnamed Step'}
+                </div>
+                <div class="node-body">
+                    <div class="step-summary">${nodeData.description || 'No description'}</div>
+                    <div class="step-stats">
+                        <span>${eventCount} actions</span>
+                        ${duration ? `<span>${duration}</span>` : ''}
+                        ${nodeData.patternType ? `<span class="pattern-badge">${nodeData.patternType}</span>` : ''}
+                    </div>
+                </div>
+            `;
+        }
+        
+        // Original rendering for other node types
         let content = `
             <div class="node-header">
                 ${this.getNodeIcon(nodeData.type)} Step ${nodeData.step || '?'}
@@ -868,7 +995,17 @@ class CanvasBuilder {
      */
     setupMinimap() {
         const minimap = document.getElementById('minimap');
+        if (!minimap) {
+            // Minimap not present in this UI, create no-op function
+            this.updateMinimap = () => {};
+            return;
+        }
+        
         const viewport = minimap.querySelector('.minimap-viewport');
+        if (!viewport) {
+            this.updateMinimap = () => {};
+            return;
+        }
         
         // Update minimap on changes
         this.updateMinimap = () => {
@@ -1009,11 +1146,21 @@ class CanvasBuilder {
             return sum + (n.data.branches?.filter(b => b.recorded).length || 0);
         }, 0);
         
-        document.getElementById('node-count').textContent = `${totalNodes} steps`;
-        document.getElementById('branch-count').textContent = `${branches} branches`;
+        // Update modern UI elements
+        const statSteps = document.getElementById('stat-steps');
+        const statBranches = document.getElementById('stat-branches');
+        const statMapped = document.getElementById('stat-mapped');
         
-        const completion = branches > 0 ? Math.round(recordedBranches / branches * 100) : 100;
-        document.getElementById('completion-status').textContent = `${completion}% mapped`;
+        if (statSteps) {
+            statSteps.textContent = totalNodes;
+        }
+        if (statBranches) {
+            statBranches.textContent = branches;
+        }
+        if (statMapped) {
+            const completion = branches > 0 ? Math.round(recordedBranches / branches * 100) : (totalNodes > 0 ? 100 : 0);
+            statMapped.textContent = `${completion}%`;
+        }
     }
 
     /**
@@ -1126,6 +1273,10 @@ class SmartLayout {
         const column = nodeCount % 4;
         const row = Math.floor(nodeCount / 4);
         
+        // Start with a visible position in the canvas
+        const baseX = 100;  // Start 100px from left
+        const baseY = 100;  // Start 100px from top
+        
         return {
             x: 100 + column * this.horizontalSpacing,
             y: 100 + row * this.verticalSpacing
@@ -1227,28 +1378,5 @@ class NodeAnimator {
     }
 }
 
-// Add arrow marker to SVG
-document.addEventListener('DOMContentLoaded', () => {
-    const svg = document.getElementById('connections-svg');
-    
-    const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
-    const marker = document.createElementNS('http://www.w3.org/2000/svg', 'marker');
-    
-    marker.setAttribute('id', 'arrowhead');
-    marker.setAttribute('markerWidth', '10');
-    marker.setAttribute('markerHeight', '10');
-    marker.setAttribute('refX', '9');
-    marker.setAttribute('refY', '3');
-    marker.setAttribute('orient', 'auto');
-    
-    const polygon = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
-    polygon.setAttribute('points', '0 0, 10 3, 0 6');
-    polygon.setAttribute('fill', '#4CAF50');
-    
-    marker.appendChild(polygon);
-    defs.appendChild(marker);
-    svg.appendChild(defs);
-    
-    // Initialize canvas
-    window.canvasBuilder = new CanvasBuilder();
-});
+// Note: Canvas initialization is handled in modern-app.js
+// This ensures proper coordination with the ProcessEngine

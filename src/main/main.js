@@ -10,12 +10,14 @@ const { fork } = require('child_process');
 const CaptureService = require('./capture-service');
 const WindowManager = require('./window-manager');
 const MarkBeforeHandler = require('./mark-before-handler');
+const StepBoundaryHandler = require('./step-boundary-handler');
 
 // Keep references to avoid garbage collection
 let mainWindow = null;
 let captureService = null;
 let windowManager = null;
 let markBeforeHandler = null;
+let stepBoundaryHandler = null;
 let tray = null;
 let browserWorker = null;
 let browserWorkerRequests = new Map(); // Track pending requests
@@ -35,11 +37,25 @@ if (!gotTheLock) {
     });
 }
 
+// Track app quitting state
+app.isQuitting = false;
+
 // Global error handlers to prevent app crashes
 process.on('uncaughtException', (error) => {
     console.error('Uncaught Exception:', error);
-    // Show error dialog but don't crash
-    if (mainWindow) {
+    
+    // Handle EPIPE errors silently - they're usually from broken worker connections
+    if (error.code === 'EPIPE' || error.errno === 'EPIPE' || error.message.includes('EPIPE')) {
+        console.log('Ignoring EPIPE error - worker process connection issue');
+        // Reset browser worker if it's the cause
+        if (browserWorker) {
+            browserWorker = null;
+        }
+        return;
+    }
+    
+    // Show error dialog for other errors but don't crash
+    if (mainWindow && !mainWindow.isDestroyed()) {
         dialog.showErrorBox('Unexpected Error', 
             `An error occurred: ${error.message}\n\nThe app will continue running.`);
     }
@@ -47,6 +63,12 @@ process.on('uncaughtException', (error) => {
 
 process.on('unhandledRejection', (reason, promise) => {
     console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+    
+    // Also handle EPIPE in promise rejections
+    if (reason && (reason.code === 'EPIPE' || reason.message?.includes('EPIPE'))) {
+        console.log('Ignoring EPIPE rejection - worker process connection issue');
+        return;
+    }
 });
 
 /**
@@ -80,7 +102,11 @@ function createMainWindow() {
     });
 
     // Load the app
-    mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'));
+    // Check for UI preference or use modern UI by default
+    const useModernUI = process.env.USE_MODERN_UI !== 'false';
+    const htmlFile = useModernUI ? 'index-modern.html' : 'index.html';
+    
+    mainWindow.loadFile(path.join(__dirname, '../renderer', htmlFile));
 
     // Show when ready
     mainWindow.once('ready-to-show', () => {
@@ -112,8 +138,24 @@ function initializeServices() {
         markBeforeHandler.init(mainWindow);
     }
     
-    // Initialize browser context worker
-    initializeBrowserWorker();
+    // Initialize step boundary handler
+    stepBoundaryHandler = new StepBoundaryHandler();
+    if (mainWindow) {
+        stepBoundaryHandler.init(mainWindow);
+    }
+    
+    // Delay browser worker initialization to avoid EPIPE errors
+    // Only initialize when actually needed or after a delay
+    setTimeout(() => {
+        if (!browserWorker && !app.isQuitting) {
+            try {
+                initializeBrowserWorker();
+            } catch (error) {
+                console.error('[Main] Failed to initialize browser worker:', error);
+                // Continue without browser worker - it's optional
+            }
+        }
+    }, 2000);
     
     // Start capture service
     captureService.initialize();
@@ -125,15 +167,19 @@ function initializeServices() {
     mainWindow.on('move', updateWindowBounds);
     mainWindow.on('resize', updateWindowBounds);
     
-    // Forward capture events to renderer AND mark handler
+    // Forward capture events to renderer AND handlers
     captureService.on('activity', (data) => {
         // Always send to renderer for UI updates
         if (mainWindow && !mainWindow.isDestroyed()) {
             mainWindow.webContents.send('capture:activity', data);
         }
         
-        // If mark mode is active, also process in mark handler
-        if (markBeforeHandler && markBeforeHandler.isActive()) {
+        // If step boundary is active, process in step handler
+        if (stepBoundaryHandler && stepBoundaryHandler.isActive()) {
+            stepBoundaryHandler.processEvent(data);
+        }
+        // Otherwise, if mark mode is active, process in mark handler
+        else if (markBeforeHandler && markBeforeHandler.isActive()) {
             markBeforeHandler.processEvent(data);
         }
     });
@@ -164,14 +210,32 @@ function updateWindowBounds() {
 function initializeBrowserWorker() {
     console.log('[Main] Initializing browser context worker...');
     
-    // Fork the browser worker process
-    browserWorker = fork(path.join(__dirname, 'browser-context-worker.js'), [], {
-        silent: false, // Show worker console output in dev mode
-        env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' }
-    });
-    
-    // Handle messages from worker
-    browserWorker.on('message', (message) => {
+    try {
+        // Check if worker file exists
+        const workerPath = path.join(__dirname, 'browser-context-worker.js');
+        if (!require('fs').existsSync(workerPath)) {
+            console.warn('[Main] Browser worker file not found, skipping initialization');
+            return;
+        }
+        
+        // Fork the browser worker process
+        browserWorker = fork(workerPath, [], {
+            silent: false, // Show worker console output in dev mode
+            env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' }
+        });
+        
+        // Add error listener immediately to catch EPIPE errors
+        browserWorker.on('error', (error) => {
+            console.error('[Main] Browser worker error:', error);
+            // Don't propagate EPIPE errors to the main error handler
+            if (error.code === 'EPIPE') {
+                console.log('[Main] Ignoring EPIPE error from browser worker');
+                return;
+            }
+        });
+        
+        // Handle messages from worker
+        browserWorker.on('message', (message) => {
         const { id, type, success, data, error, event } = message;
         console.log(`[Main] Received from browser worker: type=${type}, id=${id}, success=${success}`);
         
@@ -195,21 +259,44 @@ function initializeBrowserWorker() {
             console.log(`[Main] Browser worker event: ${event}`, data);
             
             // Notify renderer of important events
-            if (mainWindow && (event === 'connected' || event === 'reconnected' || event === 'connection_failed')) {
-                console.log(`[Main] Sending browser status update to renderer: ${event}`);
-                mainWindow.webContents.send('browser:status-update', { 
-                    connected: event === 'connected' || event === 'reconnected',
-                    message: event === 'connected' ? 'Browser context connected' : 
-                             event === 'reconnected' ? 'Browser context reconnected' : 
-                             'Browser context connection failed'
-                });
+            if (mainWindow) {
+                let statusUpdate = null;
+                
+                switch(event) {
+                    case 'connected':
+                    case 'reconnected':
+                    case 'browser_reconnected':
+                    case 'browser_recovered':
+                        statusUpdate = {
+                            connected: true,
+                            message: 'Browser context connected'
+                        };
+                        break;
+                        
+                    case 'browser_closed':
+                        statusUpdate = {
+                            connected: false,
+                            message: 'Browser was closed - reconnecting...',
+                            reconnecting: true
+                        };
+                        break;
+                        
+                    case 'disconnected':
+                    case 'connection_failed':
+                    case 'browser_reconnect_failed':
+                        statusUpdate = {
+                            connected: false,
+                            message: 'Browser context disconnected'
+                        };
+                        break;
+                }
+                
+                if (statusUpdate) {
+                    console.log(`[Main] Sending browser status update to renderer:`, statusUpdate);
+                    mainWindow.webContents.send('browser:status-update', statusUpdate);
+                }
             }
         }
-    });
-    
-    // Handle worker errors
-    browserWorker.on('error', (error) => {
-        console.error('[Main] Browser worker error:', error);
     });
     
     // Handle worker exit
@@ -217,18 +304,32 @@ function initializeBrowserWorker() {
         console.log(`[Main] Browser worker exited with code ${code} and signal ${signal}`);
         browserWorker = null;
         
-        // Attempt to restart after a delay
-        setTimeout(() => {
-            if (!browserWorker && !app.isQuitting) {
-                console.log('[Main] Attempting to restart browser worker...');
-                initializeBrowserWorker();
-            }
-        }, 5000);
+        // Only restart if it wasn't a clean exit
+        if (code !== 0 && !app.isQuitting) {
+            setTimeout(() => {
+                if (!browserWorker) {
+                    console.log('[Main] Attempting to restart browser worker...');
+                    try {
+                        initializeBrowserWorker();
+                    } catch (err) {
+                        console.error('[Main] Failed to restart browser worker:', err);
+                    }
+                }
+            }, 5000);
+        }
     });
     
     // Pass browser context getter to capture service
     if (captureService) {
         captureService.setBrowserContextGetter(getBrowserElementAtPoint);
+    }
+    
+    console.log('[Main] Browser worker initialized successfully');
+    
+    } catch (error) {
+        console.error('[Main] Failed to initialize browser worker:', error);
+        browserWorker = null;
+        // Continue without browser worker - it's optional for core functionality
     }
 }
 
@@ -256,7 +357,20 @@ function sendToBrowserWorker(type, data = {}) {
             }
         }, 5000);
         
-        browserWorker.send({ id, type, data });
+        try {
+            browserWorker.send({ id, type, data });
+        } catch (error) {
+            console.error('[Main] Error sending to browser worker:', error);
+            browserWorkerRequests.delete(id);
+            
+            // Handle EPIPE specifically
+            if (error.code === 'EPIPE') {
+                console.log('[Main] Browser worker pipe broken, will reinitialize on next use');
+                browserWorker = null;
+            }
+            
+            reject(error);
+        }
     });
 }
 
@@ -280,32 +394,32 @@ async function getBrowserElementAtPoint(x, y) {
  * Setup global keyboard shortcuts
  */
 function setupGlobalShortcuts() {
-    // Mark important step - now uses Mark Before pattern with immediate intent dialog
-    globalShortcut.register('CommandOrControl+Shift+M', () => {
-        if (mainWindow && !mainWindow.isDestroyed()) {
-            // Send signal to renderer to show intent dialog IMMEDIATELY
-            mainWindow.webContents.send('mark-before:prompt');
-            
-            // Bring window to front to ensure dialog is visible
-            if (!mainWindow.isVisible()) {
-                mainWindow.show();
-            }
-            if (mainWindow.isMinimized()) {
-                mainWindow.restore();
-            }
-            mainWindow.focus();
+    // REMOVED: Ctrl+Shift+M shortcut - was confusing with multiple marking systems
+    // Now using Step Boundary system exclusively (Cmd+S to start, Cmd+E to end)
+
+    // Start new step
+    globalShortcut.register('CommandOrControl+S', () => {
+        if (mainWindow) {
+            mainWindow.webContents.send('shortcut:start-step');
+        }
+    });
+    
+    // End current step
+    globalShortcut.register('CommandOrControl+E', () => {
+        if (mainWindow) {
+            mainWindow.webContents.send('shortcut:end-step');
         }
     });
 
-    // Start/stop capture
-    globalShortcut.register('CommandOrControl+Shift+S', () => {
+    // Start/stop capture (changed to Alt to avoid conflict)
+    globalShortcut.register('CommandOrControl+Alt+S', () => {
         if (mainWindow) {
             mainWindow.webContents.send('shortcut:toggle-capture');
         }
     });
 
-    // Quick export
-    globalShortcut.register('CommandOrControl+E', () => {
+    // Quick export (changed to Alt+E)
+    globalShortcut.register('CommandOrControl+Alt+E', () => {
         if (mainWindow) {
             mainWindow.webContents.send('shortcut:export');
         }
@@ -366,6 +480,44 @@ function setupIpcHandlers() {
             };
         }
         return { active: false, eventCount: 0, currentText: '' };
+    });
+    
+    // Step Boundary handlers
+    ipcMain.handle('step:start', async (event, data) => {
+        console.log('[Main] Starting step boundary:', data.name);
+        
+        if (!stepBoundaryHandler) {
+            return { success: false, error: 'Step handler not initialized' };
+        }
+        
+        const stepId = stepBoundaryHandler.startStep(data.name);
+        return { success: true, stepId };
+    });
+    
+    ipcMain.handle('step:end', async (event, data) => {
+        console.log('[Main] Ending step boundary. Data:', data);
+        
+        if (!stepBoundaryHandler) {
+            return { success: false, error: 'Step handler not initialized' };
+        }
+        
+        // Handle both with and without data parameter
+        const mode = data?.mode || 'quick';
+        const context = data?.context || '';
+        
+        const stepData = stepBoundaryHandler.endStep(mode, context);
+        return { success: true, stepData };
+    });
+    
+    ipcMain.handle('step:status', async (event) => {
+        if (!stepBoundaryHandler) {
+            return { active: false };
+        }
+        
+        return {
+            active: stepBoundaryHandler.isActive(),
+            currentStep: stepBoundaryHandler.getCurrentStep()
+        };
     });
     
     // New intent-first Mark Before handler

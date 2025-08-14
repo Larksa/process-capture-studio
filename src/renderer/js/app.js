@@ -28,6 +28,12 @@ class ProcessCaptureApp {
         this.recordingMode = 'linear'; // 'linear', 'branch', 'review'
         this.isSavingMark = false; // Flag to prevent duplicate saves
         
+        // Step Boundary state
+        this.isStepActive = false;
+        this.currentStepId = null;
+        this.stepEventCount = 0;
+        this.stepStartTime = null;
+        
         // Store element references to prevent loss
         this.elements = {};
         
@@ -64,6 +70,9 @@ class ProcessCaptureApp {
         
         // Load saved session if exists
         this.loadSession();
+        
+        // Restore Process Guide collapsed state
+        this.restoreProcessGuideState();
         
         // Initialize dialogs
         this.setupDialogs();
@@ -144,7 +153,10 @@ class ProcessCaptureApp {
             chatMessages: document.getElementById('chat-messages'),
             nodeCount: document.getElementById('node-count'),
             branchCount: document.getElementById('branch-count'),
-            completionStatus: document.getElementById('completion-status')
+            completionStatus: document.getElementById('completion-status'),
+            toggleChat: document.getElementById('toggle-chat'),
+            chatPanel: document.getElementById('chat-panel'),
+            canvasPanel: document.getElementById('canvas-panel')
         };
         
         // DON'T remove listeners on initial setup, only on recovery
@@ -152,6 +164,9 @@ class ProcessCaptureApp {
         
         // Window controls
         this.setupWindowControls();
+        
+        // Step Boundary controls
+        this.setupStepBoundaryControls();
         
         // Capture controls
         if (this.elements.startCapture) {
@@ -336,6 +351,13 @@ class ProcessCaptureApp {
                 }
             });
         });
+        
+        // Process Guide toggle button
+        if (this.elements.toggleChat) {
+            this.elements.toggleChat.addEventListener('click', () => {
+                this.toggleProcessGuide();
+            });
+        }
         
         console.log('UI handlers setup complete');
     }
@@ -524,6 +546,33 @@ class ProcessCaptureApp {
             this.showIntentDialog();
         });
 
+        // Listen for Step Boundary events
+        window.electronAPI.onStepStarted((data) => {
+            console.log('[App] Step started:', data);
+            this.handleStepStarted(data);
+        });
+        
+        window.electronAPI.onStepCompleted((data) => {
+            console.log('[App] Step completed:', data);
+            this.handleStepCompleted(data);
+        });
+        
+        window.electronAPI.onStepEventAdded((data) => {
+            console.log('[App] Step event added:', data);
+            this.updateStepProgress(data);
+        });
+        
+        // Listen for Step Boundary shortcuts
+        window.electronAPI.onShortcut('start-step', () => {
+            console.log('[App] Start step shortcut triggered');
+            this.startNewStep();
+        });
+        
+        window.electronAPI.onShortcut('end-step', () => {
+            console.log('[App] End step shortcut triggered');
+            this.endCurrentStep();
+        });
+        
         // Listen for inactivity detection during Mark Before
         window.electronAPI.onMarkInactivityDetected((data) => {
             console.log('[App] Inactivity detected during Mark Before:', data);
@@ -629,6 +678,11 @@ class ProcessCaptureApp {
         document.getElementById('pause-capture').disabled = false;
         document.getElementById('stop-capture').disabled = false;
         
+        // Show Step Boundary controls when capture starts
+        if (this.elements.stepBoundaryControls) {
+            this.elements.stepBoundaryControls.style.display = 'block';
+        }
+        
         // Update global recording status
         const globalStatus = document.getElementById('global-recording-status');
         globalStatus.classList.add('recording');
@@ -640,7 +694,7 @@ class ProcessCaptureApp {
         captureStatus.querySelector('.status-dot').style.background = '#f44336';
         
         // Add chat message
-        this.addChatMessage('ai', "Recording started. Perform your process normally. Press Ctrl+Shift+M to mark important steps.");
+        this.addChatMessage('ai', "Recording started! Now click '▶️ Start New Step' (or press Cmd+S) when you're ready to capture a step.");
     }
 
     /**
@@ -675,6 +729,16 @@ class ProcessCaptureApp {
     stopCapture() {
         this.isRecording = false;
         this.tracker.stopCapture();
+        
+        // Hide Step Boundary controls when capture stops
+        if (this.elements.stepBoundaryControls) {
+            this.elements.stepBoundaryControls.style.display = 'none';
+        }
+        
+        // End any active step
+        if (this.isStepActive) {
+            this.endCurrentStep();
+        }
         
         // Update UI
         document.getElementById('start-capture').disabled = false;
@@ -820,9 +884,15 @@ class ProcessCaptureApp {
                     this.elements.chatMessages.innerHTML = `
                         <div class="message ai">
                             <div class="message-content">
-                                👋 Welcome to Process Capture Studio! I'll help you document your workflow. 
-                                Start by clicking "Start Capture" and then perform your normal process. 
-                                Press Ctrl+Shift+M to mark important steps.
+                                👋 Welcome to Process Capture Studio! Here's how to capture your workflow:
+                                
+                                1️⃣ Click "Start Capture" to enable system-wide recording
+                                2️⃣ Click "▶️ Start New Step" (or press Cmd+S) when you're about to do something
+                                3️⃣ Perform your work - all actions are automatically captured
+                                4️⃣ Click "✅ End Current Step" (or press Cmd+E) when done
+                                5️⃣ Repeat for each step in your process
+                                
+                                The browser context enriches your captures with element details automatically.
                             </div>
                         </div>
                     `;
@@ -963,6 +1033,78 @@ class ProcessCaptureApp {
                 // For browser, just reload
                 window.location.reload();
             }
+        }
+    }
+    
+    /**
+     * Restore Process Guide collapsed state from localStorage
+     */
+    restoreProcessGuideState() {
+        const isCollapsed = localStorage.getItem('processGuideCollapsed') === 'true';
+        
+        if (isCollapsed && this.elements.chatPanel && this.elements.canvasPanel) {
+            // Apply collapsed state without animation
+            this.elements.chatPanel.classList.add('collapsed');
+            this.elements.canvasPanel.classList.add('expanded');
+            
+            if (this.elements.toggleChat) {
+                this.elements.toggleChat.textContent = '👁️';
+                this.elements.toggleChat.title = 'Show Process Guide';
+            }
+            
+            console.log('Process Guide state restored: collapsed');
+        }
+    }
+    
+    /**
+     * Toggle Process Guide panel visibility
+     */
+    toggleProcessGuide() {
+        if (!this.elements.chatPanel || !this.elements.canvasPanel) {
+            console.error('Cannot toggle Process Guide - panels not found');
+            return;
+        }
+        
+        const chatPanel = this.elements.chatPanel;
+        const canvasPanel = this.elements.canvasPanel;
+        const toggleBtn = this.elements.toggleChat;
+        
+        // Toggle collapsed state
+        const isCollapsed = chatPanel.classList.contains('collapsed');
+        
+        if (isCollapsed) {
+            // Expand the Process Guide
+            chatPanel.classList.remove('collapsed');
+            canvasPanel.classList.remove('expanded');
+            if (toggleBtn) {
+                toggleBtn.textContent = '👁️';
+                toggleBtn.title = 'Hide Process Guide';
+            }
+            
+            // Save state to localStorage
+            localStorage.setItem('processGuideCollapsed', 'false');
+            
+            console.log('Process Guide expanded');
+        } else {
+            // Collapse the Process Guide
+            chatPanel.classList.add('collapsed');
+            canvasPanel.classList.add('expanded');
+            if (toggleBtn) {
+                toggleBtn.textContent = '👁️';
+                toggleBtn.title = 'Show Process Guide';
+            }
+            
+            // Save state to localStorage
+            localStorage.setItem('processGuideCollapsed', 'true');
+            
+            console.log('Process Guide collapsed');
+        }
+        
+        // Trigger canvas redraw to adjust to new dimensions
+        if (this.canvas && this.canvas.resizeCanvas) {
+            setTimeout(() => {
+                this.canvas.resizeCanvas();
+            }, 300); // Wait for CSS transition to complete
         }
     }
 
@@ -2258,7 +2400,10 @@ class ProcessCaptureApp {
      */
     updateBrowserStatus(status) {
         if (this.elements.browserStatus) {
-            if (status.connected) {
+            if (status.reconnecting) {
+                this.elements.browserStatus.textContent = '🟡 Context: Reconnecting...';
+                this.elements.browserStatus.style.color = '#ffc107';
+            } else if (status.connected) {
                 this.elements.browserStatus.textContent = '🟢 Context: Connected';
                 this.elements.browserStatus.style.color = '#28a745';
                 
@@ -2335,6 +2480,458 @@ class ProcessCaptureApp {
             }, 500);
         } else {
             console.error('Canvas not available for testing');
+        }
+    }
+    
+    /**
+     * Setup Step Boundary controls
+     */
+    setupStepBoundaryControls() {
+        // Cache elements
+        this.elements.stepBoundaryControls = document.getElementById('step-boundary-controls');
+        this.elements.startStepBtn = document.getElementById('start-step-btn');
+        this.elements.endStepBtn = document.getElementById('end-step-btn');
+        this.elements.currentStepStatus = document.getElementById('current-step-status');
+        this.elements.stepInProgress = document.getElementById('step-in-progress');
+        this.elements.currentStepName = document.getElementById('current-step-name');
+        this.elements.stepEventCount = document.getElementById('step-event-count');
+        this.elements.stepDuration = document.getElementById('step-duration');
+        
+        // Hide step controls initially - will show when capture starts
+        if (this.elements.stepBoundaryControls) {
+            this.elements.stepBoundaryControls.style.display = 'none';
+        }
+        
+        // Start step button
+        if (this.elements.startStepBtn) {
+            this.elements.startStepBtn.addEventListener('click', () => {
+                this.startNewStep();
+            });
+        }
+        
+        // End step button  
+        if (this.elements.endStepBtn) {
+            this.elements.endStepBtn.addEventListener('click', () => {
+                this.endCurrentStep();
+            });
+        }
+    }
+    
+    /**
+     * Show step name dialog
+     */
+    showStepNameDialog() {
+        return new Promise((resolve) => {
+            // Create a simple inline dialog
+            const dialog = document.createElement('div');
+            dialog.style.cssText = `
+                position: fixed;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%);
+                background: white;
+                padding: 20px;
+                border-radius: 8px;
+                box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+                z-index: 10000;
+                min-width: 400px;
+            `;
+            
+            dialog.innerHTML = `
+                <h3 style="margin: 0 0 15px 0;">What are you about to do?</h3>
+                <input type="text" id="step-name-input" 
+                       placeholder="Describe the step in a few words" 
+                       value="Step ${this.engine.process.nodes.size + 1}"
+                       style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px;">
+                <div style="margin-top: 15px; text-align: right;">
+                    <button id="step-cancel-btn" style="padding: 8px 16px; margin-right: 8px; border: 1px solid #ddd; background: white; border-radius: 4px; cursor: pointer;">Cancel</button>
+                    <button id="step-ok-btn" style="padding: 8px 16px; background: #4CAF50; color: white; border: none; border-radius: 4px; cursor: pointer;">Start Step</button>
+                </div>
+            `;
+            
+            document.body.appendChild(dialog);
+            
+            // Focus input and select text
+            const input = document.getElementById('step-name-input');
+            input.focus();
+            input.select();
+            
+            // Handle buttons
+            document.getElementById('step-ok-btn').onclick = () => {
+                const value = input.value.trim();
+                document.body.removeChild(dialog);
+                resolve(value || null);
+            };
+            
+            document.getElementById('step-cancel-btn').onclick = () => {
+                document.body.removeChild(dialog);
+                resolve(null);
+            };
+            
+            // Handle Enter key
+            input.onkeydown = (e) => {
+                if (e.key === 'Enter') {
+                    const value = input.value.trim();
+                    document.body.removeChild(dialog);
+                    resolve(value || null);
+                } else if (e.key === 'Escape') {
+                    document.body.removeChild(dialog);
+                    resolve(null);
+                }
+            };
+        });
+    }
+    
+    /**
+     * Start a new step
+     */
+    async startNewStep() {
+        console.log('[App] Starting new step');
+        
+        // Create a custom dialog instead of using prompt (which may be blocked)
+        const stepName = await this.showStepNameDialog();
+        
+        if (!stepName) {
+            console.log('[App] Step start cancelled');
+            return;
+        }
+        
+        try {
+            // Call backend to start step
+            const result = await window.electronAPI.startStep({ name: stepName });
+            
+            if (result.success) {
+                console.log('[App] Step started successfully:', result.stepId);
+                this.isStepActive = true;
+                this.currentStepId = result.stepId;
+                this.stepEventCount = 0;
+                this.stepStartTime = Date.now();
+                
+                // Update UI
+                this.updateStepUI(true, stepName);
+                
+                // Show notification
+                this.showNotification(`Started step: ${stepName}`, 'info');
+            } else {
+                console.error('[App] Failed to start step:', result.error);
+                this.showNotification('Failed to start step', 'error');
+            }
+        } catch (error) {
+            console.error('[App] Error starting step:', error);
+            this.showNotification('Error starting step', 'error');
+        }
+    }
+    
+    /**
+     * Show end step dialog
+     */
+    showEndStepDialog() {
+        return new Promise((resolve) => {
+            const dialog = document.createElement('div');
+            dialog.style.cssText = `
+                position: fixed;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%);
+                background: white;
+                padding: 20px;
+                border-radius: 8px;
+                box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+                z-index: 10000;
+                min-width: 400px;
+            `;
+            
+            dialog.innerHTML = `
+                <h3 style="margin: 0 0 15px 0;">Complete Step</h3>
+                <p style="margin: 10px 0;">How would you like to complete this step?</p>
+                <div style="margin: 15px 0;">
+                    <button id="quick-complete-btn" style="width: 100%; padding: 12px; margin-bottom: 10px; background: #4CAF50; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 16px;">
+                        ✅ Quick Complete
+                        <div style="font-size: 12px; opacity: 0.9; margin-top: 4px;">Just mark as done</div>
+                    </button>
+                    <button id="add-context-btn" style="width: 100%; padding: 12px; background: #2196F3; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 16px;">
+                        📝 Add Context
+                        <div style="font-size: 12px; opacity: 0.9; margin-top: 4px;">Describe what you did</div>
+                    </button>
+                </div>
+                <button id="cancel-end-btn" style="width: 100%; padding: 8px; border: 1px solid #ddd; background: white; border-radius: 4px; cursor: pointer;">Cancel</button>
+            `;
+            
+            document.body.appendChild(dialog);
+            
+            // Quick complete
+            document.getElementById('quick-complete-btn').onclick = () => {
+                document.body.removeChild(dialog);
+                resolve({ mode: 'quick', context: '' });
+            };
+            
+            // Add context
+            document.getElementById('add-context-btn').onclick = async () => {
+                document.body.removeChild(dialog);
+                
+                // Show context input dialog
+                const context = await this.showContextDialog();
+                if (context !== null) {
+                    resolve({ mode: 'detailed', context });
+                } else {
+                    resolve(null);
+                }
+            };
+            
+            // Cancel
+            document.getElementById('cancel-end-btn').onclick = () => {
+                document.body.removeChild(dialog);
+                resolve(null);
+            };
+        });
+    }
+    
+    /**
+     * Show context dialog
+     */
+    showContextDialog() {
+        return new Promise((resolve) => {
+            const dialog = document.createElement('div');
+            dialog.style.cssText = `
+                position: fixed;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%);
+                background: white;
+                padding: 20px;
+                border-radius: 8px;
+                box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+                z-index: 10000;
+                min-width: 400px;
+            `;
+            
+            dialog.innerHTML = `
+                <h3 style="margin: 0 0 15px 0;">Add Context</h3>
+                <textarea id="context-input" 
+                          placeholder="Describe what you did in this step (optional)" 
+                          style="width: 100%; height: 100px; padding: 8px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; resize: vertical;"></textarea>
+                <div style="margin-top: 15px; text-align: right;">
+                    <button id="context-cancel-btn" style="padding: 8px 16px; margin-right: 8px; border: 1px solid #ddd; background: white; border-radius: 4px; cursor: pointer;">Cancel</button>
+                    <button id="context-ok-btn" style="padding: 8px 16px; background: #2196F3; color: white; border: none; border-radius: 4px; cursor: pointer;">Complete Step</button>
+                </div>
+            `;
+            
+            document.body.appendChild(dialog);
+            
+            const textarea = document.getElementById('context-input');
+            textarea.focus();
+            
+            document.getElementById('context-ok-btn').onclick = () => {
+                const value = textarea.value.trim();
+                document.body.removeChild(dialog);
+                resolve(value);
+            };
+            
+            document.getElementById('context-cancel-btn').onclick = () => {
+                document.body.removeChild(dialog);
+                resolve(null);
+            };
+        });
+    }
+    
+    /**
+     * End the current step
+     */
+    async endCurrentStep() {
+        if (!this.isStepActive) {
+            console.log('[App] No step in progress');
+            return;
+        }
+        
+        console.log('[App] Ending current step');
+        
+        // Ask user for completion mode using custom dialog
+        const result = await this.showEndStepDialog();
+        
+        if (!result) {
+            console.log('[App] Step end cancelled');
+            return;
+        }
+        
+        const { mode, context } = result;
+        
+        try {
+            // Call backend to end step
+            const result = await window.electronAPI.endStep({ mode, context });
+            
+            if (result.success) {
+                console.log('[App] Step ended successfully');
+                this.handleStepCompleted(result.stepData);
+                
+                // Reset state
+                this.isStepActive = false;
+                this.currentStepId = null;
+                this.stepEventCount = 0;
+                this.stepStartTime = null;
+                
+                // Update UI
+                this.updateStepUI(false);
+                
+                // Show notification
+                this.showNotification('Step completed', 'success');
+            } else {
+                console.error('[App] Failed to end step:', result.error);
+                this.showNotification('Failed to end step', 'error');
+            }
+        } catch (error) {
+            console.error('[App] Error ending step:', error);
+            this.showNotification('Error ending step', 'error');
+        }
+    }
+    
+    /**
+     * Update Step UI
+     */
+    updateStepUI(isActive, stepName = '') {
+        if (isActive) {
+            // Show in-progress state
+            if (this.elements.currentStepStatus) {
+                this.elements.currentStepStatus.textContent = '🔴 Recording step...';
+                this.elements.currentStepStatus.style.color = '#d32f2f';
+            }
+            
+            if (this.elements.startStepBtn) {
+                this.elements.startStepBtn.style.display = 'none';
+            }
+            
+            if (this.elements.endStepBtn) {
+                this.elements.endStepBtn.style.display = 'block';
+            }
+            
+            if (this.elements.stepInProgress) {
+                this.elements.stepInProgress.style.display = 'block';
+                
+                if (this.elements.currentStepName) {
+                    this.elements.currentStepName.textContent = stepName;
+                }
+            }
+            
+            // Start duration timer
+            this.stepDurationInterval = setInterval(() => {
+                if (this.elements.stepDuration && this.stepStartTime) {
+                    const duration = Math.floor((Date.now() - this.stepStartTime) / 1000);
+                    this.elements.stepDuration.textContent = `${duration}s`;
+                }
+            }, 1000);
+            
+        } else {
+            // Show ready state
+            if (this.elements.currentStepStatus) {
+                this.elements.currentStepStatus.textContent = '📝 Ready to start a step';
+                this.elements.currentStepStatus.style.color = '#555';
+            }
+            
+            if (this.elements.startStepBtn) {
+                this.elements.startStepBtn.style.display = 'block';
+            }
+            
+            if (this.elements.endStepBtn) {
+                this.elements.endStepBtn.style.display = 'none';
+            }
+            
+            if (this.elements.stepInProgress) {
+                this.elements.stepInProgress.style.display = 'none';
+            }
+            
+            // Clear duration timer
+            if (this.stepDurationInterval) {
+                clearInterval(this.stepDurationInterval);
+                this.stepDurationInterval = null;
+            }
+        }
+    }
+    
+    /**
+     * Handle step started event from backend
+     */
+    handleStepStarted(data) {
+        console.log('[App] Step started:', data);
+        this.isStepActive = true;
+        this.currentStepId = data.id;
+        this.stepEventCount = 0;
+        this.stepStartTime = data.timestamp;
+        
+        this.updateStepUI(true, data.name);
+    }
+    
+    /**
+     * Handle step completed event from backend
+     */
+    handleStepCompleted(stepData) {
+        console.log('[App] Step completed:', stepData);
+        
+        // Check if this step was already processed (prevent duplicates)
+        if (this.engine.process.nodes.has(stepData.id)) {
+            console.log('[App] Step already exists, skipping duplicate:', stepData.id);
+            this.updateStepUI(false);
+            return;
+        }
+        
+        // Get the ID of the previous node for edge creation
+        const previousNodeId = this.lastCompletedStepId || null;
+        
+        // Add step to process engine as a single node
+        const node = {
+            id: stepData.id,
+            type: 'step',
+            title: stepData.name,
+            description: stepData.summary,
+            timestamp: stepData.startTime,
+            duration: stepData.duration,
+            eventCount: stepData.eventCount,
+            events: stepData.events,
+            primaryAction: stepData.primaryAction,
+            keyElements: stepData.keyElements,
+            patternType: stepData.patternType,
+            mode: stepData.mode,
+            additionalContext: stepData.additionalContext,
+            previousId: previousNodeId  // Add connection to previous node
+        };
+        
+        // Add to engine
+        this.engine.addNode(node);
+        
+        // Create edge if there's a previous node
+        if (previousNodeId) {
+            this.engine.addEdge(previousNodeId, stepData.id, 'sequence');
+        }
+        
+        // Add to canvas
+        if (this.canvas) {
+            this.canvas.addNode(node);
+        }
+        
+        // Store this as the last completed step
+        this.lastCompletedStepId = stepData.id;
+        
+        // Add to chat
+        this.addChatMessage('ai', `✅ Completed step: ${stepData.name}\n${stepData.summary}`);
+        
+        // Reset UI
+        this.updateStepUI(false);
+    }
+    
+    /**
+     * Update step progress
+     */
+    updateStepProgress(data) {
+        if (!this.isStepActive || data.stepId !== this.currentStepId) {
+            return;
+        }
+        
+        this.stepEventCount = data.eventCount;
+        
+        if (this.elements.stepEventCount) {
+            this.elements.stepEventCount.textContent = data.eventCount;
+        }
+        
+        if (this.elements.stepDuration) {
+            this.elements.stepDuration.textContent = `${data.duration}s`;
         }
     }
 }

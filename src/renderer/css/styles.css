@@ -106,10 +106,37 @@ body {
     flex-direction: column;
     border-right: 1px solid #e0e0e0;
     overflow: hidden;
+    transition: all 0.3s ease;
 }
 
 .panel:last-child {
     border-right: none;
+}
+
+/* Collapsed chat panel */
+#chat-panel.collapsed {
+    width: 60px !important;
+    min-width: 60px !important;
+}
+
+#chat-panel.collapsed .chat-messages,
+#chat-panel.collapsed .quick-replies,
+#chat-panel.collapsed .chat-input-container {
+    display: none;
+}
+
+#chat-panel.collapsed .panel-header h3 {
+    display: none;
+}
+
+#chat-panel.collapsed #toggle-chat {
+    transform: rotate(180deg);
+}
+
+/* Canvas panel expanded state */
+#canvas-panel.expanded {
+    flex: 1 1 auto;
+    width: calc(100% - 460px); /* Adjust for collapsed chat (60px) and tracker (400px) */
 }
 
 .panel-header {
@@ -1247,6 +1274,48 @@ textarea.form-input {
 .btn-success:hover {
     transform: translateY(-1px);
     box-shadow: 0 4px 12px rgba(76, 175, 80, 0.4);
+}
+
+/* Step Node Styles */
+.process-node.step {
+    background: linear-gradient(135deg, #e8f5e9, #c8e6c9);
+    border: 2px solid #4CAF50;
+    min-width: 200px;
+}
+
+.step-node-header {
+    background: linear-gradient(135deg, #4CAF50, #45a049);
+    color: white;
+    padding: 8px 12px;
+    font-weight: 600;
+    border-radius: 8px 8px 0 0;
+}
+
+.step-summary {
+    font-size: 13px;
+    color: #555;
+    padding: 8px;
+    border-bottom: 1px solid #ddd;
+}
+
+.step-stats {
+    display: flex;
+    gap: 12px;
+    padding: 8px;
+    font-size: 12px;
+    color: #666;
+}
+
+.step-stats span {
+    background: #f5f5f5;
+    padding: 2px 8px;
+    border-radius: 12px;
+}
+
+.pattern-badge {
+    background: #FFF3E0 !important;
+    color: #F57C00 !important;
+    font-weight: 600;
 }
 
 /* Success Notification */

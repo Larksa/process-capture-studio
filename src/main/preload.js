@@ -20,6 +20,22 @@ contextBridge.exposeInMainWorld('electronAPI', {
         ipcRenderer.on('capture:activity', (event, data) => callback(data));
     },
     
+    // Step Boundary methods
+    startStep: (data) => ipcRenderer.invoke('step:start', data),
+    endStep: (data) => ipcRenderer.invoke('step:end', data),
+    getStepStatus: () => ipcRenderer.invoke('step:status'),
+    
+    // Step Boundary events
+    onStepStarted: (callback) => {
+        ipcRenderer.on('step:started', (event, data) => callback(data));
+    },
+    onStepCompleted: (callback) => {
+        ipcRenderer.on('step:completed', (event, data) => callback(data));
+    },
+    onStepEventAdded: (callback) => {
+        ipcRenderer.on('step:event-added', (event, data) => callback(data));
+    },
+    
     // Mark mode events
     onMarkModeStarted: (callback) => {
         ipcRenderer.on('mark:mode-started', (event, data) => callback(data));

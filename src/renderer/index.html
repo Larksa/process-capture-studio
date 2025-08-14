@@ -56,6 +56,24 @@
                 </div>
             </div>
             
+            <!-- Step Boundary Controls -->
+            <div class="step-boundary-controls" id="step-boundary-controls" style="display: none; padding: 10px; background: #f0f4f8; border-radius: 8px; margin: 10px;">
+                <div class="current-step-indicator" style="text-align: center; margin-bottom: 8px;">
+                    <span id="current-step-status" style="font-weight: bold; color: #555;">📝 Ready to start a step</span>
+                </div>
+                <button id="start-step-btn" class="btn btn-primary" style="width: 100%; padding: 10px; font-size: 16px;">
+                    ▶️ Start New Step (Cmd+S)
+                </button>
+                <button id="end-step-btn" class="btn btn-success" style="width: 100%; padding: 10px; font-size: 16px; display: none;">
+                    ✅ End Current Step (Cmd+E)
+                </button>
+                <div id="step-in-progress" style="display: none; margin-top: 10px; padding: 10px; background: #e8f5e9; border-radius: 4px;">
+                    <div style="font-size: 14px; color: #2e7d32;">📍 Recording step: <strong id="current-step-name"></strong></div>
+                    <div style="font-size: 12px; color: #666; margin-top: 4px;">Events captured: <span id="step-event-count">0</span></div>
+                    <div style="font-size: 12px; color: #666;">Duration: <span id="step-duration">0s</span></div>
+                </div>
+            </div>
+            
             <div class="filter-bar">
                 <label>
                     <input type="checkbox" id="filter-keystrokes" checked> Keystrokes
@@ -72,26 +90,31 @@
                 <!-- Real-time activity will appear here -->
             </div>
             
-            <div class="panel-footer">
-                <button id="mark-important" class="btn btn-accent">
-                    📌 Mark as Step (Ctrl+Shift+M)
-                </button>
-            </div>
+            <!-- Removed confusing Mark Important button - use Step Boundary instead -->
         </div>
 
         <!-- MIDDLE PANEL: AI Chat Guide -->
         <div id="chat-panel" class="panel">
             <div class="panel-header">
                 <h3>💬 Process Guide</h3>
-                <button id="chat-settings" class="btn-icon">⚙️</button>
+                <div style="display: flex; gap: 8px;">
+                    <button id="toggle-chat" class="btn-icon" title="Hide/Show Process Guide">👁️</button>
+                    <button id="chat-settings" class="btn-icon">⚙️</button>
+                </div>
             </div>
             
             <div id="chat-messages" class="chat-messages">
                 <div class="message ai">
                     <div class="message-content">
-                        👋 Welcome to Process Capture Studio! I'll help you document your workflow. 
-                        Start by clicking "Start Capture" and then perform your normal process. 
-                        Press Ctrl+Shift+M to mark important steps.
+                        👋 Welcome to Process Capture Studio! Here's how to capture your workflow:
+                        
+                        1️⃣ Click "Start Capture" to enable system-wide recording
+                        2️⃣ Click "▶️ Start New Step" (or press Cmd+S) when you're about to do something
+                        3️⃣ Perform your work - all actions are automatically captured
+                        4️⃣ Click "✅ End Current Step" (or press Cmd+E) when done
+                        5️⃣ Repeat for each step in your process
+                        
+                        The browser context enriches your captures with element details automatically.
                     </div>
                 </div>
             </div>
@@ -308,6 +331,7 @@
     <script src="js/terminal-renderer.js"></script>
     <script src="js/activity-tracker.js"></script>
     <script src="js/canvas-builder.js"></script>
+    <script src="js/workflow-analyzer.js"></script>
     <script src="js/chat-guide.js"></script>
     <script src="js/app.js"></script>
 </body>

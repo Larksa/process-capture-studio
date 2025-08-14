@@ -175,11 +175,13 @@ class BrowserContextWorker {
         throw new Error('Failed to launch browser');
       }
       
-      // Navigate to a blank page for testing
+      // Don't navigate anywhere - let the user navigate
       if (this.service.activePage) {
-        console.log('[BrowserWorker] Navigating to about:blank for testing...');
-        await this.service.activePage.goto('about:blank');
-        console.log('[BrowserWorker] Navigation complete');
+        console.log('[BrowserWorker] Browser ready, waiting for user to navigate...');
+        const currentUrl = this.service.activePage.url();
+        if (currentUrl && currentUrl !== 'about:blank') {
+          console.log('[BrowserWorker] Current page:', currentUrl);
+        }
       } else {
         console.warn('[BrowserWorker] No active page available after launch');
       }
@@ -196,6 +198,9 @@ class BrowserContextWorker {
       
       // Start monitoring for disconnection
       this.startConnectionMonitoring();
+      
+      // Also start health monitoring
+      this.startBrowserHealthMonitoring();
       
       return {
         connected: true,
@@ -407,6 +412,87 @@ class BrowserContextWorker {
         await this.attemptReconnect();
       }
     }, 5000); // Check every 5 seconds
+  }
+  
+  /**
+   * Start browser health monitoring
+   */
+  startBrowserHealthMonitoring() {
+    // Clear any existing monitor
+    if (this.healthCheckInterval) {
+      clearInterval(this.healthCheckInterval);
+    }
+    
+    // Check browser health every 5 seconds
+    this.healthCheckInterval = setInterval(async () => {
+      try {
+        // Check if browser exists and is connected
+        if (this.service.browser) {
+          const isConnected = this.service.browser.isConnected();
+          
+          if (!isConnected) {
+            console.log('[BrowserWorker] Browser disconnected (likely closed by user)');
+            
+            // Mark service as disconnected
+            this.service.isConnected = false;
+            this.service.activePage = null;
+            
+            // Notify main process
+            process.send({
+              type: 'event',
+              event: 'browser_closed',
+              data: { 
+                reason: 'Browser window was closed',
+                willReconnect: true 
+              }
+            });
+            
+            // Attempt to reconnect
+            console.log('[BrowserWorker] Attempting to relaunch browser...');
+            const launched = await this.service.launchBrowser();
+            
+            if (launched) {
+              console.log('[BrowserWorker] Browser relaunched successfully');
+              
+              // Notify main process
+              process.send({
+                type: 'event',
+                event: 'browser_reconnected',
+                data: {
+                  connected: true,
+                  mode: 'relaunched',
+                  hasActivePage: !!this.service.activePage
+                }
+              });
+            } else {
+              console.error('[BrowserWorker] Failed to relaunch browser');
+              
+              process.send({
+                type: 'event',
+                event: 'browser_reconnect_failed',
+                data: { error: 'Could not relaunch browser' }
+              });
+            }
+          }
+        } else if (this.isInitialized && !this.service.browser) {
+          // Browser object is gone but we were initialized
+          console.log('[BrowserWorker] Browser object lost, attempting recovery...');
+          
+          const launched = await this.service.launchBrowser();
+          if (launched) {
+            console.log('[BrowserWorker] Browser recovered');
+            
+            process.send({
+              type: 'event',
+              event: 'browser_recovered',
+              data: { connected: true }
+            });
+          }
+        }
+      } catch (error) {
+        console.error('[BrowserWorker] Health check error:', error);
+      }
+    }, 3000); // Check every 3 seconds for faster recovery
   }
   
   /**

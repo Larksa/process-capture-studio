@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Process Capture Studio</title>
+    <link rel="stylesheet" href="css/modern-styles.css">
+</head>
+<body>
+    <!-- Modern VS Code-style Layout -->
+    <div id="app-container">
+        <!-- Activity Bar (Left-most icon bar) -->
+        <div id="activity-bar">
+            <div class="activity-item active" data-view="process-map" title="Process Map (Cmd+1)">
+                <svg class="activity-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="3" y="3" width="7" height="7"></rect>
+                    <rect x="14" y="3" width="7" height="7"></rect>
+                    <rect x="14" y="14" width="7" height="7"></rect>
+                    <rect x="3" y="14" width="7" height="7"></rect>
+                    <path d="M10 6.5h4m-7 7h4m3 0h4m-7 -7v4m0 3v4"></path>
+                </svg>
+            </div>
+            <div class="activity-item" data-view="live-activity" title="Live Activity (Cmd+2)">
+                <svg class="activity-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <polygon points="10 8 16 12 10 16 10 8"></polygon>
+                </svg>
+            </div>
+            <div class="activity-item" data-view="process-guide" title="Process Guide (Cmd+3)">
+                <svg class="activity-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+                </svg>
+            </div>
+            <div class="activity-item activity-bottom" data-view="settings" title="Settings (Cmd+,)">
+                <svg class="activity-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="12" cy="12" r="3"></circle>
+                    <path d="M12 1v6m0 6v6m9-9h-6m-6 0H3m16.24-6.36l-4.24 4.24M7.76 7.76L3.52 3.52m16.72 16.72l-4.24-4.24M7.76 16.24l-4.24 4.24"></path>
+                </svg>
+            </div>
+        </div>
+
+        <!-- Sidebar Panel (Collapsible) -->
+        <div id="sidebar" class="sidebar-expanded">
+            <div class="sidebar-header">
+                <h3 id="sidebar-title">Process Map</h3>
+                <button id="sidebar-toggle" class="sidebar-toggle" title="Toggle Sidebar (Cmd+B)">
+                    <svg viewBox="0 0 16 16" fill="currentColor">
+                        <path d="M2 3h12v1H2zm0 4h12v1H2zm0 4h12v1H2z"/>
+                    </svg>
+                </button>
+            </div>
+            
+            <!-- Process Map View (default) -->
+            <div id="sidebar-process-map" class="sidebar-view active">
+                <div class="sidebar-section">
+                    <div class="section-header">
+                        <span>Process Overview</span>
+                    </div>
+                    <div class="process-stats">
+                        <div class="stat-item">
+                            <span class="stat-label">Steps</span>
+                            <span class="stat-value" id="stat-steps">0</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">Branches</span>
+                            <span class="stat-value" id="stat-branches">0</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">Mapped</span>
+                            <span class="stat-value" id="stat-mapped">0%</span>
+                        </div>
+                    </div>
+                    <div class="session-status" id="session-status">
+                        <div class="status-indicator">
+                            <span class="status-dot" id="session-status-dot" style="background: var(--text-disabled)"></span>
+                            <span id="session-status-text">No Session Captured</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="sidebar-section">
+                    <div class="section-header">
+                        <span>Quick Actions</span>
+                    </div>
+                    <div class="quick-actions">
+                        <button class="action-item" id="capture-session">
+                            <span>🔐 Capture Session</span>
+                            <kbd>Auth</kbd>
+                        </button>
+                        <button class="action-item" id="export-process">
+                            <span>Export Process</span>
+                            <kbd>Cmd+E</kbd>
+                        </button>
+                        <button class="action-item" id="save-process-quick">
+                            <span>Save Process</span>
+                            <kbd>Cmd+S</kbd>
+                        </button>
+                        <button class="action-item" id="clear-all">
+                            <span>Clear All</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Live Activity View -->
+            <div id="sidebar-live-activity" class="sidebar-view">
+                <!-- Terminal Mode Toggle -->
+                <div style="display: flex; justify-content: flex-end; padding: 0 8px 8px;">
+                    <button id="terminal-mode-toggle" class="terminal-toggle" title="Toggle Terminal Mode">
+                        <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20">
+                            <path d="M2 3h20v18H2V3zm2 2v14h16V5H4zm6 4l-4 4 4 4v-3h8v-2h-8V9z"/>
+                        </svg>
+                    </button>
+                </div>
+                <!-- Step Boundary Controls -->
+                <div class="step-boundary-controls hidden" id="step-boundary-controls">
+                    <div class="current-step-indicator">
+                        <span id="current-step-status">📝 Ready to start a step</span>
+                    </div>
+                    <button id="step-start-btn" class="action-item">
+                        <span>▶️ Start New Step</span>
+                        <kbd>Cmd+S</kbd>
+                    </button>
+                    <button id="step-end-btn" class="action-item hidden">
+                        <span>✅ End Current Step</span>
+                        <kbd>Cmd+E</kbd>
+                    </button>
+                    <div id="step-in-progress" class="step-progress hidden">
+                        <div class="step-name">Recording: <strong id="current-step-name"></strong></div>
+                        <div class="step-stats">
+                            <span>Events: <span id="step-event-count">0</span></span>
+                            <span>Duration: <span id="step-duration">0s</span></span>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="sidebar-section">
+                    <div class="activity-filters">
+                        <label class="filter-item">
+                            <input type="checkbox" id="filter-clicks" checked>
+                            <span>Clicks</span>
+                        </label>
+                        <label class="filter-item">
+                            <input type="checkbox" id="filter-keys" checked>
+                            <span>Keystrokes</span>
+                        </label>
+                        <label class="filter-item">
+                            <input type="checkbox" id="filter-nav" checked>
+                            <span>Navigation</span>
+                        </label>
+                    </div>
+                </div>
+                
+                <div class="activity-feed" id="activity-feed">
+                    <!-- Activity items will be added here -->
+                </div>
+            </div>
+            
+            <!-- Process Guide View -->
+            <div id="sidebar-process-guide" class="sidebar-view">
+                <div class="guide-messages" id="guide-messages">
+                    <div class="guide-message">
+                        <div class="message-content">
+                            Welcome to Process Capture Studio! Click "Start Capture" to begin recording your workflow.
+                        </div>
+                    </div>
+                </div>
+                <div class="guide-input-area">
+                    <textarea id="guide-input" placeholder="Describe what you're doing..." rows="3"></textarea>
+                    <button id="guide-send" class="btn-send">Send</button>
+                </div>
+            </div>
+            
+            <!-- Settings View -->
+            <div id="sidebar-settings" class="sidebar-view">
+                <div class="sidebar-section">
+                    <div class="section-header">
+                        <span>Appearance</span>
+                    </div>
+                    <div class="setting-item">
+                        <label for="theme-select">Theme</label>
+                        <select id="theme-select">
+                            <option value="dark">Dark</option>
+                            <option value="light">Light</option>
+                            <option value="auto">Auto</option>
+                        </select>
+                    </div>
+                    <div class="setting-item">
+                        <label for="opacity-slider">Window Opacity</label>
+                        <div class="slider-container">
+                            <input type="range" id="opacity-slider" min="70" max="100" value="100">
+                            <span id="opacity-value">100%</span>
+                        </div>
+                    </div>
+                    <div class="setting-item">
+                        <label>
+                            <input type="checkbox" id="always-on-top">
+                            <span>Always on Top</span>
+                        </label>
+                    </div>
+                </div>
+                
+                <div class="sidebar-section">
+                    <div class="section-header">
+                        <span>Browser Context</span>
+                    </div>
+                    <div class="browser-status" id="browser-status-panel">
+                        <div class="status-indicator">
+                            <span class="status-dot" id="browser-status-dot"></span>
+                            <span id="browser-status-text">Not Connected</span>
+                        </div>
+                        <button class="action-item" id="launch-browser-btn" style="margin-top: 12px;">
+                            <span>🌐 Launch Capture Browser</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Main Content Area -->
+        <div id="main-content">
+            <!-- Top Bar -->
+            <div id="top-bar">
+                <div class="top-bar-left">
+                    <span class="app-title">Process Capture Studio</span>
+                    <span class="capture-status" id="capture-status-text">
+                        <span class="status-dot"></span>
+                        <span>Ready</span>
+                    </span>
+                </div>
+                <div class="top-bar-right">
+                    <button class="top-bar-btn" id="minimize-btn" title="Minimize">
+                        <svg viewBox="0 0 16 16" fill="currentColor">
+                            <path d="M2 7h12v1H2z"/>
+                        </svg>
+                    </button>
+                    <button class="top-bar-btn" id="maximize-btn" title="Maximize">
+                        <svg viewBox="0 0 16 16" fill="currentColor">
+                            <rect x="2" y="3" width="12" height="10" fill="none" stroke="currentColor"/>
+                        </svg>
+                    </button>
+                    <button class="top-bar-btn close" id="close-btn" title="Close">
+                        <svg viewBox="0 0 16 16" fill="currentColor">
+                            <path d="M3.5 3.5l9 9m0-9l-9 9" stroke="currentColor" fill="none"/>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+            
+            <!-- Canvas Container (Process Map) -->
+            <div id="canvas-container">
+                <!-- SVG for connections -->
+                <svg id="connections-svg" class="connections-layer"></svg>
+                
+                <!-- Nodes container -->
+                <div id="nodes-container" class="nodes-layer"></div>
+                
+                <!-- Minimap -->
+                <div id="minimap" class="minimap hidden">
+                    <div class="minimap-viewport"></div>
+                </div>
+                
+                <!-- Zoom Controls -->
+                <div id="canvas-controls">
+                    <button id="zoom-in" class="canvas-control" title="Zoom In">
+                        <svg viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/>
+                        </svg>
+                    </button>
+                    <button id="zoom-out" class="canvas-control" title="Zoom Out">
+                        <svg viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M19 13H5v-2h14v2z"/>
+                        </svg>
+                    </button>
+                    <button id="zoom-fit" class="canvas-control" title="Fit to Screen">
+                        <svg viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M5 15H3v4c0 1.1.9 2 2 2h4v-2H5v-4zM5 5h4V3H5c-1.1 0-2 .9-2 2v4h2V5zm14-2h-4v2h4v4h2V5c0-1.1-.9-2-2-2zm0 16h-4v2h4c1.1 0 2-.9 2-2v-4h-2v4z"/>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+            
+            <!-- Floating Action Buttons -->
+            <div id="floating-actions">
+                <button id="start-capture-fab" class="fab fab-primary" title="Start Capture (F5)">
+                    <svg viewBox="0 0 24 24" fill="currentColor">
+                        <circle cx="12" cy="12" r="8" fill="red" class="record-dot"/>
+                    </svg>
+                    <span>Start Capture</span>
+                </button>
+                
+                <!-- Step Controls (appear when capturing) -->
+                <div id="step-controls" class="step-controls hidden">
+                    <button id="start-step" class="fab-secondary" title="Start Step (Cmd+S)">
+                        <svg viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M8 5v14l11-7z"/>
+                        </svg>
+                        <span>Start Step</span>
+                    </button>
+                    <button id="end-step" class="fab-secondary hidden" title="End Step (Cmd+E)">
+                        <svg viewBox="0 0 24 24" fill="currentColor">
+                            <rect x="6" y="6" width="12" height="12"/>
+                        </svg>
+                        <span>End Step</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Export Dialog (Modal) -->
+    <div id="export-dialog" class="modal hidden">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Export Process</h3>
+                <button class="modal-close" id="close-export">×</button>
+            </div>
+            <div class="modal-body">
+                <div class="export-formats">
+                    <button class="export-format" data-format="playwright">
+                        <div class="format-icon">🎭</div>
+                        <div class="format-name">Playwright</div>
+                    </button>
+                    <button class="export-format" data-format="puppeteer">
+                        <div class="format-icon">🤖</div>
+                        <div class="format-name">Puppeteer</div>
+                    </button>
+                    <button class="export-format" data-format="selenium">
+                        <div class="format-icon">🌐</div>
+                        <div class="format-name">Selenium</div>
+                    </button>
+                    <button class="export-format" data-format="python">
+                        <div class="format-icon">🐍</div>
+                        <div class="format-name">Python</div>
+                    </button>
+                    <button class="export-format" data-format="json">
+                        <div class="format-icon">{ }</div>
+                        <div class="format-name">JSON</div>
+                    </button>
+                    <button class="export-format" data-format="markdown">
+                        <div class="format-icon">📝</div>
+                        <div class="format-name">Markdown</div>
+                    </button>
+                </div>
+                <div class="export-preview">
+                    <textarea id="export-preview-text" readonly></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button id="copy-export" class="btn-primary">Copy to Clipboard</button>
+                <button id="download-export" class="btn-secondary">Download File</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Notifications Container -->
+    <div id="toast-container"></div>
+
+    <!-- Scripts -->
+    <script src="js/process-engine.js"></script>
+    <script src="js/canvas-builder.js"></script>
+    <script src="js/modern-app.js"></script>
+</body>
+</html>

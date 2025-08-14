@@ -12,6 +12,8 @@
   },
   "scripts": {
     "start": "electron .",
+    "start:modern": "USE_MODERN_UI=true electron .",
+    "start:classic": "USE_MODERN_UI=false electron .",
     "dev": "NODE_ENV=development electron .",
     "build": "electron-builder",
     "build:win": "electron-builder --win",

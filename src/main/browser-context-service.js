@@ -80,12 +80,30 @@ class BrowserContextService {
   async launchBrowser() {
     try {
       this.browser = await chromium.launch({
-        headless: false
-        // Removed --remote-debugging-port=9222 to avoid conflicts
+        headless: false,
+        args: ['--start-maximized'] // Start maximized for better visibility
       });
       
-      const context = await this.browser.newContext();
+      const context = await this.browser.newContext({
+        viewport: null // Use full browser window
+      });
+      
       this.activePage = await context.newPage();
+      
+      // Don't navigate to about:blank - let user navigate
+      console.log('[BrowserService] Browser launched, ready for user navigation');
+      
+      // Monitor for page changes
+      context.on('page', async (page) => {
+        console.log('[BrowserService] New page created:', await page.url());
+        this.activePage = page; // Update to newest page
+        
+        // Listen for navigation
+        page.on('load', () => {
+          console.log('[BrowserService] Page loaded:', page.url());
+        });
+      });
+      
       this.isConnected = true;
       
       console.log('Launched new browser instance');
@@ -135,6 +153,7 @@ class BrowserContextService {
       
       // Transform screen coordinates to viewport coordinates
       // Account for browser chrome (toolbar, tabs, etc.)
+      // Handle multi-monitor setups properly
       const viewportX = x - browserCoords.screenX - (browserCoords.chromeWidth / 2);
       const viewportY = y - browserCoords.screenY - (browserCoords.chromeHeight - browserCoords.chromeWidth / 2);
       
@@ -145,6 +164,8 @@ class BrowserContextService {
           viewportY < 0 || viewportY > browserCoords.innerHeight) {
         console.warn('[BrowserService] Coordinates outside viewport bounds');
         console.warn(`[BrowserService] Viewport bounds: 0,0 to ${browserCoords.innerWidth},${browserCoords.innerHeight}`);
+        console.warn('[BrowserService] This might be a different window or monitor');
+        // Don't return null, still try to find element
       }
       
       console.log('[BrowserService] Executing page.evaluate to find element...');

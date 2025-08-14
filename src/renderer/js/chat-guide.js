@@ -12,8 +12,12 @@ class ChatGuide {
         this.context = {
             currentStep: null,
             previousSteps: [],
-            pendingQuestions: []
+            pendingQuestions: [],
+            recentEvents: []  // Track recent events for pattern detection
         };
+        
+        // Initialize workflow analyzer
+        this.workflowAnalyzer = new WorkflowAnalyzer();
         
         this.prompts = {
             action: {
@@ -124,12 +128,34 @@ class ChatGuide {
      * Process activity and generate smart prompt
      */
     processActivity(activity) {
-        const prompt = this.generateSmartPrompt(activity);
+        // Track events for pattern detection
+        if (activity.data?.events) {
+            this.context.recentEvents = this.context.recentEvents.concat(activity.data.events);
+            // Keep only last 20 events
+            if (this.context.recentEvents.length > 20) {
+                this.context.recentEvents = this.context.recentEvents.slice(-20);
+            }
+        } else if (activity.type) {
+            this.context.recentEvents.push(activity);
+            if (this.context.recentEvents.length > 20) {
+                this.context.recentEvents = this.context.recentEvents.slice(-20);
+            }
+        }
+        
+        // Detect workflow patterns
+        const detectedPattern = this.workflowAnalyzer.analyzeEvents(this.context.recentEvents);
+        
+        // Generate prompt based on pattern or default
+        const prompt = this.generateSmartPrompt(activity, detectedPattern);
         
         if (prompt) {
             this.addMessage('ai', prompt.text);
             
-            if (prompt.quickReplies) {
+            // Get quick replies from workflow analyzer if pattern detected
+            if (detectedPattern) {
+                const quickReplies = this.workflowAnalyzer.getQuickReplies(detectedPattern);
+                this.showQuickReplies(quickReplies);
+            } else if (prompt.quickReplies) {
                 this.showQuickReplies(prompt.quickReplies);
             }
         }
@@ -142,9 +168,21 @@ class ChatGuide {
     /**
      * Generate contextual prompt
      */
-    generateSmartPrompt(activity) {
+    generateSmartPrompt(activity, detectedPattern) {
         let promptText = "";
         let quickReplies = [];
+        
+        // Use workflow analyzer's contextual prompt if pattern detected
+        if (detectedPattern) {
+            promptText = this.workflowAnalyzer.getContextualPrompt(detectedPattern, this.context.recentEvents);
+            
+            // Add pattern confidence indicator
+            if (detectedPattern.confidence > 0.7) {
+                promptText = `🎯 ${promptText}`;
+            }
+            
+            return { text: promptText };
+        }
         
         // Check for specific patterns
         if (activity.type === 'input' && activity.field?.type === 'password') {

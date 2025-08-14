@@ -836,6 +836,11 @@ execute${this.toCamelCase(this.process.name)}().catch(console.error);
      * Convert a single node to Playwright code
      */
     nodeToPlaywrightCode(node) {
+        // Handle step nodes (from Step Boundary system)
+        if (node.type === 'step') {
+            return this.stepNodeToPlaywrightCode(node);
+        }
+        
         // Handle preparation nodes
         if (node.type === 'preparation') {
             let code = `    // MANUAL PREPARATION REQUIRED\n`;
@@ -1075,6 +1080,56 @@ execute${this.toCamelCase(this.process.name)}().catch(console.error);
         return code;
     }
 
+    /**
+     * Convert step node to Playwright code
+     */
+    stepNodeToPlaywrightCode(node) {
+        let code = `    // Step: ${node.title || 'Unnamed Step'}\n`;
+        code += `    // ${node.description || 'No description'}\n`;
+        
+        if (node.eventCount) {
+            code += `    // ${node.eventCount} actions captured\n`;
+        }
+        
+        if (node.patternType) {
+            code += `    // Pattern: ${node.patternType}\n`;
+        }
+        
+        code += `\n`;
+        
+        // Process all events in the step
+        if (node.events && node.events.length > 0) {
+            node.events.forEach(event => {
+                code += this.eventToPlaywrightCode(event);
+            });
+        }
+        
+        code += `\n`;
+        return code;
+    }
+    
+    /**
+     * Convert individual event to Playwright code
+     */
+    eventToPlaywrightCode(event) {
+        let code = '';
+        
+        if (event.type === 'click') {
+            const selector = this.getBestSelector(event.element);
+            if (selector) {
+                code += `    await page.click('${selector}');\n`;
+            } else {
+                code += `    // Click at (${event.x}, ${event.y})\n`;
+            }
+        } else if (event.type === 'typed_text') {
+            code += `    await page.type('input:focus', '${event.text}');\n`;
+        } else if (event.type === 'key') {
+            code += `    await page.keyboard.press('${event.key}');\n`;
+        }
+        
+        return code;
+    }
+    
     /**
      * Analyze data flow through the process
      */
@@ -2169,44 +2224,104 @@ ${Array.from(this.process.nodes.values()).map(node => `  - step: ${node.step}
         
         nodes.forEach((node, index) => {
             const stepNum = index + 1;
-            const title = node.action?.description || node.title || 'Untitled Step';
+            const title = node.description || node.action?.description || node.title || 'Untitled Step';
             
             text += `${stepNum}. ${title}\n`;
             
-            // Add simple context
-            if (node.context || node.action?.context) {
-                const ctx = node.context || node.action.context;
-                if (ctx.application) {
-                    text += `   In: ${ctx.application}\n`;
+            // Add enhanced context with URL if available
+            const pageContext = node.data?.primaryPageContext || node.pageContext;
+            const ctx = node.context || node.action?.context;
+            
+            if (pageContext?.url) {
+                text += `   URL: ${pageContext.url}\n`;
+            }
+            if (pageContext?.title) {
+                text += `   Page: ${pageContext.title}\n`;
+            }
+            if (ctx?.application) {
+                text += `   Application: ${ctx.application}\n`;
+            }
+            
+            // Add primary element details if available
+            const primaryElement = node.data?.primaryElement || node.element;
+            if (primaryElement) {
+                if (primaryElement.selector || primaryElement.selectors?.css) {
+                    const selector = primaryElement.selector || primaryElement.selectors?.css;
+                    text += `   Element: ${selector}\n`;
+                }
+                if (primaryElement.text || primaryElement.selectors?.text) {
+                    const elementText = primaryElement.text || primaryElement.selectors?.text;
+                    text += `   Element Text: "${elementText}"\n`;
                 }
             }
             
-            // Add simplified actions
+            // Add detailed actions from events
             const events = node.events || node.action?.events || node.data?.events || [];
             if (events.length > 0) {
+                text += `   Actions:\n`;
                 events.forEach((event) => {
                     if (event.type === 'click' || event.type === 'mousedown') {
                         text += `   - Click`;
-                        if (event.element?.selector || event.element?.text) {
-                            const identifier = event.element.text || event.element.selector;
-                            text += ` on ${identifier}`;
+                        
+                        // Use rich element data if available
+                        if (event.element) {
+                            const selector = event.element.selector || event.element.selectors?.css || event.element.xpath;
+                            const elementText = event.element.text || event.element.selectors?.text;
+                            
+                            if (elementText) {
+                                text += ` on "${elementText}"`;
+                            }
+                            if (selector) {
+                                text += ` [${selector}]`;
+                            }
+                        } else if (event.x && event.y) {
+                            text += ` at (${event.x}, ${event.y})`;
+                        }
+                        
+                        // Add page context if URL changed
+                        if (event.pageContext?.url) {
+                            text += ` on ${event.pageContext.url}`;
                         }
                         text += '\n';
                     } else if (event.type === 'keystroke' || event.type === 'typed_text') {
                         const content = event.keys || event.key || event.text || '';
-                        text += `   - Type "${content}"\n`;
+                        text += `   - Type: "${content}"`;
+                        
+                        // Add field context if available
+                        if (event.element?.name || event.element?.id) {
+                            const fieldName = event.element.name || event.element.id;
+                            text += ` in field "${fieldName}"`;
+                        }
+                        text += '\n';
                     } else if (event.type === 'key') {
-                        text += `   - Press ${event.key}\n`;
+                        text += `   - Press: ${event.key}`;
+                        if (event.key === 'Enter') {
+                            text += ' (Submit)';
+                        } else if (event.key === 'Tab') {
+                            text += ' (Next field)';
+                        }
+                        text += '\n';
                     } else if (event.type === 'navigation') {
-                        text += `   - Go to ${event.url || 'new page'}\n`;
+                        text += `   - Navigate to: ${event.url || 'new page'}\n`;
+                    } else if (event.type === 'scroll') {
+                        text += `   - Scroll: ${event.direction || 'page'}\n`;
                     }
                 });
             }
             
-            // Add reason if available
-            if (node.logic?.reason || node.reason) {
-                const reason = node.logic?.reason || node.reason;
-                text += `   Why: ${reason}\n`;
+            // Add business context/reason if available
+            if (node.context && typeof node.context === 'string') {
+                text += `   Business Context: ${node.context}\n`;
+            }
+            if (node.logic?.reason || node.reason || node.data?.reason) {
+                const reason = node.logic?.reason || node.reason || node.data?.reason;
+                text += `   Reason: ${reason}\n`;
+            }
+            
+            // Add duration for grouped actions
+            if (node.duration || node.data?.duration) {
+                const duration = node.duration || node.data?.duration;
+                text += `   Duration: ${(duration / 1000).toFixed(1)} seconds\n`;
             }
             
             text += '\n';
