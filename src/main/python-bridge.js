@@ -181,6 +181,22 @@ class PythonBridge extends EventEmitter {
                     description: `📋 Copied ${pythonEvent.data_type}: "${pythonEvent.content_preview}" from ${pythonEvent.source?.application || 'Unknown'}`
                 };
             
+            case 'excel_paste':
+                // Enriched paste event with source and destination
+                return {
+                    ...baseEvent,
+                    type: 'excel-paste',
+                    source: pythonEvent.source,
+                    destination: pythonEvent.destination,
+                    pasteTimestamp: pythonEvent.paste_timestamp,
+                    description: pythonEvent.description,
+                    dataFlow: {
+                        from: pythonEvent.source ? `${pythonEvent.source.workbook}!${pythonEvent.source.sheet}!${pythonEvent.source.address}` : 'Unknown',
+                        to: pythonEvent.destination ? `${pythonEvent.destination.workbook}!${pythonEvent.destination.sheet}!${pythonEvent.destination.address}` : 'Unknown',
+                        content: pythonEvent.source?.content
+                    }
+                };
+            
             default:
                 return {
                     ...baseEvent,

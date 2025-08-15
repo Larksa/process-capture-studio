@@ -436,6 +436,9 @@ class ProcessCaptureService:
                 'platform': platform.system(),
                 'capabilities': ['file_system', 'excel', 'desktop']
             }))
+            
+            # Start listening for commands from Electron
+            asyncio.create_task(self.listen_for_commands())
         except Exception as e:
             print(f"❌ Failed to connect to Electron: {e}")
             self.electron_connected = False
@@ -447,6 +450,106 @@ class ProcessCaptureService:
                 await self.websocket.send(json.dumps(event))
             except:
                 self.electron_connected = False
+    
+    async def listen_for_commands(self):
+        """Listen for commands from Electron"""
+        if not self.websocket:
+            return
+            
+        try:
+            async for message in self.websocket:
+                try:
+                    command = json.loads(message)
+                    await self.handle_command(command)
+                except json.JSONDecodeError:
+                    print(f"Invalid command received: {message}")
+        except websockets.exceptions.ConnectionClosed:
+            print("WebSocket connection closed")
+            self.electron_connected = False
+    
+    async def handle_command(self, command: Dict[str, Any]):
+        """Handle commands from Electron"""
+        cmd_type = command.get('type')
+        
+        if cmd_type == 'capture_paste_destination':
+            print("📋 Received request to capture paste destination")
+            await self.capture_paste_destination(command.get('timestamp'))
+    
+    async def capture_paste_destination(self, paste_timestamp):
+        """Capture Excel destination context when paste happens"""
+        # Get current Excel selection as destination
+        if self.excel_capture.excel:
+            # Force immediate capture of current selection
+            self.excel_capture.capture_selection()
+            
+            # Get last clipboard entry for source context
+            last_clipboard = self.clipboard_monitor.get_last_clipboard() if self.clipboard_monitor else None
+            
+            # Create enriched paste event
+            paste_event = {
+                'type': 'excel_paste',
+                'timestamp': datetime.now().isoformat(),
+                'paste_timestamp': paste_timestamp,
+                'source': None,
+                'destination': None
+            }
+            
+            # Add source context from clipboard
+            if last_clipboard and last_clipboard.get('source', {}).get('excel_selection'):
+                paste_event['source'] = {
+                    'workbook': last_clipboard['source']['excel_selection'].get('workbook'),
+                    'sheet': last_clipboard['source']['excel_selection'].get('sheet'),
+                    'address': last_clipboard['source']['excel_selection'].get('address'),
+                    'path': last_clipboard['source']['excel_selection'].get('path'),
+                    'content': last_clipboard.get('content_preview')
+                }
+            
+            # Get destination from current Excel state
+            try:
+                if platform.system() == "Windows" and self.excel_capture.excel:
+                    sheet = self.excel_capture.excel.ActiveSheet
+                    workbook = self.excel_capture.excel.ActiveWorkbook
+                    selection = self.excel_capture.excel.Selection
+                    
+                    paste_event['destination'] = {
+                        'workbook': workbook.Name,
+                        'sheet': sheet.Name,
+                        'address': selection.Address,
+                        'path': workbook.FullName
+                    }
+                elif platform.system() == "Darwin":
+                    # macOS - use AppleScript
+                    script = '''
+                    tell application "Microsoft Excel"
+                        set sel to selection
+                        set addr to get address of sel
+                        set sheetName to name of active sheet
+                        set wbName to name of active workbook
+                        set wbPath to full name of active workbook
+                        return {addr, sheetName, wbName, wbPath}
+                    end tell
+                    '''
+                    as_script = applescript.AppleScript(script)
+                    result = as_script.run()
+                    
+                    if result and isinstance(result, list) and len(result) >= 4:
+                        paste_event['destination'] = {
+                            'address': result[0],
+                            'sheet': result[1],
+                            'workbook': result[2],
+                            'path': result[3]
+                        }
+            except Exception as e:
+                print(f"Error capturing paste destination: {e}")
+            
+            # Send enriched paste event
+            if paste_event['source'] and paste_event['destination']:
+                paste_event['description'] = f"Pasted from {paste_event['source']['workbook']} to {paste_event['destination']['workbook']}"
+                print(f"📊 Excel paste: {paste_event['source']['address']} ({paste_event['source']['workbook']}) → {paste_event['destination']['address']} ({paste_event['destination']['workbook']})")
+            else:
+                paste_event['description'] = "Paste operation (incomplete context)"
+            
+            await self.send_to_electron(paste_event)
     
     def process_events(self):
         """Process queued events and send to Electron"""

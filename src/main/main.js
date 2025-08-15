@@ -138,6 +138,9 @@ function initializeServices() {
     pythonBridge = new PythonBridge();
     pythonBridge.start(captureService);
     
+    // Connect Python bridge to capture service for Excel context
+    captureService.setPythonBridge(pythonBridge);
+    
     // Forward Python events to renderer
     pythonBridge.on('python-event', (event) => {
         if (mainWindow && !mainWindow.isDestroyed()) {

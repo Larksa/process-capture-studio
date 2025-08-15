@@ -4,37 +4,31 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Process Capture Studio is an Electron app that captures user workflows WITH context and converts them to automation code. Key differentiator: captures WHY users do things, not just WHAT they do.
+Process Capture Studio is an Electron app that captures user workflows WITH context and converts them to automation code. Key differentiator: captures WHY users do things, not just WHAT they do, and captures actual data values for true repeatability.
 
-## Critical Architecture: Three-Process Model
+## Critical Architecture: Four-Process Model with Python Service
 
-The app uses THREE separate processes to avoid Electron async conflicts:
+The app uses FOUR separate processes for complete capture:
 
 ```
 Main Process (main.js) → spawns → Browser Worker (browser-context-worker.js)
      ↓                                    ↓
-Renderer Process                    Playwright CDP Operations
+     ↓                              Playwright CDP Operations
+     ↓
+Python Service (capture_service.py) → WebSocket (port 9876) → Main Process
+     ↓
+File System + Clipboard + Excel Monitoring
 ```
 
-### Worker Communication Pattern
-```javascript
-// Main spawns worker
-browserWorker = fork(path.join(__dirname, 'browser-context-worker.js'));
-
-// Request with unique ID
-const requestId = Date.now().toString();
-browserWorkerRequests.set(requestId, { resolve, reject });
-browserWorker.send({ id: requestId, type: 'action', data });
-
-// Worker responds
-process.on('message', ({ id, result, error }) => {
-  const request = browserWorkerRequests.get(id);
-  if (request) {
-    error ? request.reject(error) : request.resolve(result);
-    browserWorkerRequests.delete(id);
-  }
-});
+### Data Flow & Global Event Buffer
 ```
+Browser Events → Browser Worker → Main Process → Global Event Buffer
+Python Events → WebSocket → Python Bridge → Global Event Buffer
+                                                        ↓
+                                            Export (all events combined)
+```
+
+The **Global Event Buffer** in `capture-service.js` is the single source of truth containing all captured events in chronological order.
 
 ## Development Commands
 
@@ -42,16 +36,19 @@ process.on('message', ({ id, result, error }) => {
 # Setup (CRITICAL if uiohook-napi fails)
 npm install && npm run rebuild
 
-# Development
-npm run dev              # Dev mode with auto-reload
-npm start                # Production mode
-npm start:modern         # New terminal UI (experimental)
+# Electron App
+npm start                # Classic UI (stable)
+npm start:modern         # Modern terminal UI (experimental)
+npm run dev              # Development mode with auto-reload
+
+# Python Service (run in separate terminal)
+cd src/python
+./start_capture.sh       # Starts file, clipboard, Excel monitoring
 
 # Testing
 npm test                 # All tests
 npm test -- test/unit/mark-before-handler.test.js  # Single test
-npm test:watch          # Watch mode
-npm test:coverage       # Coverage report
+python3 test_excel_capture.py  # Test Excel capture
 
 # Build
 npm run build           # Current platform
@@ -60,74 +57,125 @@ npm run build:win       # Windows .exe
 npm run build:linux     # Linux AppImage
 ```
 
-## Core Patterns
+## Core Capture Capabilities
 
-### 1. Mark Before Pattern (Intent-First Capture)
-User declares intent BEFORE performing actions:
+### 1. Browser Context (via Playwright CDP)
+- DOM selectors (CSS, XPath, ID)
+- Element attributes and text
+- Page URL and title
+- Session state (cookies, localStorage)
+
+### 2. System Events (via uiohook-napi)
+- Global keystrokes and mouse clicks
+- Application context (active window)
+- Coordinates and timing
+
+### 3. Data Capture (via Python Service) - NEW
+- **Clipboard monitoring**: Captures actual content with source
+- **Excel integration**: Cell values, formulas, addresses (A1:B1)
+- **File operations**: Create, move, delete with full paths
+- **Document context**: Knows which app, document, location
+
+### 4. Intent Capture (Mark Before Pattern)
 ```javascript
 // User presses Cmd+Shift+M → Dialog appears
-// User types intent → System captures next 30s of activity
+// User types intent → System captures next 30s
 markBeforeHandler.startMarkMode(description);
 // Groups all events under single intent node
 ```
 
-### 2. Activity Data Structure Evolution
+### 5. Browser Session Persistence
 ```javascript
-// Level 1: Basic capture
+// Capture authenticated state (cookies, localStorage, sessionStorage)
+const sessionState = await browserContextService.saveSession();
+// Session state embedded in exports for replay
+
+// Replay bypasses login
+await browser.newContext({ storageState: sessionState });
+```
+
+## Critical Implementation Details
+
+### Worker Communication Pattern
+```javascript
+// Main spawns worker with unique request IDs
+browserWorker = fork(path.join(__dirname, 'browser-context-worker.js'));
+const requestId = Date.now().toString();
+browserWorkerRequests.set(requestId, { resolve, reject });
+browserWorker.send({ id: requestId, type: 'action', data });
+```
+
+### Python Bridge WebSocket
+```javascript
+// Python service connects on port 9876
+pythonBridge = new PythonBridge();
+pythonBridge.start(captureService);
+// Events flow: Python → WebSocket → Main → Global Buffer
+```
+
+### Data Structure Evolution
+```javascript
+// Level 1: Basic click
 { type: 'click', x: 100, y: 200 }
 
-// Level 2: With browser context (via CDP)
+// Level 2: With browser context
 {
   type: 'click',
-  coordinates: { x, y },
-  element: { selector: '#button', xpath: '//button[@id="submit"]' },
-  context: { url, title, app }
+  element: { 
+    selectors: { css: '#submit', xpath: '//button[@id="submit"]' },
+    attributes: { name: 'submitBtn', type: 'submit' }
+  },
+  pageContext: { url: 'example.com', title: 'Form' }
 }
 
-// Level 3: With Mark Before grouping
+// Level 3: With clipboard data
 {
-  type: 'grouped_action',
-  description: 'Submit customer form',
-  events: [...nested events with full context...],
-  duration: 3500
+  type: 'clipboard_copy',
+  content: 'John Smith',
+  source: { 
+    application: 'Microsoft Excel',
+    excel_selection: { 
+      address: '$A$1:$B$1',
+      sheet: 'Sheet1',
+      workbook: 'data.xlsx'
+    }
+  }
 }
 ```
 
-### 3. Self-Activity Filtering (Critical)
+### Self-Activity Filtering
 ```javascript
-// Must filter out Process Capture Studio's own clicks
+// CRITICAL: Filter out Process Capture Studio's own events
 const isOwnProcess = activeApp?.name?.includes('Process Capture Studio') || 
                     activeApp?.owner?.name?.includes('Electron');
 if (isOwnProcess) return; // Skip capture
 ```
 
-### 4. Browser Session Persistence
-```javascript
-// Capture authenticated state
-const sessionState = await browserContextService.saveSession();
-// Includes cookies, localStorage, sessionStorage
-
-// Replay with auth
-await browserContextService.loadSession(sessionState);
-```
-
-## IPC Event Flow
-
-Critical IPC channels:
-- `capture:start/stop` → Recording control
-- `mark-before:start` → Intent capture (30s window)
-- `browser:connect` → CDP via worker process
-- `browser:saveSession` → Capture auth state
-- `capture:activity` → Activity data stream
-
 ## Export System
 
-ProcessEngine generates different formats for different needs:
-- **Playwright/Puppeteer** → Web automation with DOM selectors
-- **Python/pyautogui** → Desktop apps, cross-application workflows
-- **Selenium** → Enterprise standard
-- **JSON** → Complete process data with context
-- **Markdown** → Human documentation
+ProcessEngine generates different formats based on captured data:
+- **Playwright/Puppeteer** → Web with DOM selectors + embedded session state (cookies, localStorage)
+- **Python/pyautogui** → Desktop apps, file operations
+- **Raw Log** → Complete capture with all context (debugging)
+- **JSON** → Structured data with Excel values, clipboard content, session state
+- **With Data Extraction** → Reads from source files (Excel, Word)
+
+### Session State in Exports
+```javascript
+// Exports include authentication state
+{
+  sessionState: {
+    cookies: [...],      // All cookies from captured domains
+    localStorage: [...], // Site storage
+    sessionStorage: [...] // Temporary storage
+  },
+  metadata: {
+    capturedAt: "2024-01-15T10:30:00Z",
+    hasAuthentication: true,
+    domains: ["example.com", "api.example.com"]
+  }
+}
+```
 
 ## Common Issues & Solutions
 
@@ -137,43 +185,69 @@ npm run rebuild  # MUST run after npm install
 ```
 
 ### macOS Permissions
-System Preferences → Security & Privacy → Accessibility
-Add BOTH Terminal/VS Code AND Electron app
+- System Preferences → Security & Privacy → Accessibility
+- Add BOTH Terminal/VS Code AND Electron app
+- Python service needs folder access permissions
 
-### Browser Context Not Working
-1. Click "Launch Capture Browser" first
-2. Check worker: `ps aux | grep browser-context-worker`
-3. Browser needs `--remote-debugging-port=9222`
+### Python Service Not Capturing
+1. Check if running: `ps aux | grep capture_service`
+2. Install dependencies: `pip install -r requirements.txt`
+3. macOS specific: `pip install pyobjc-core py-applescript`
 
-### EPIPE Errors
-Already handled in main.js - ignores broken worker connections gracefully
+### Browser Context Missing
+- Check worker process: `ps aux | grep browser-context-worker`
+- Verify Step Boundary Handler connected to global buffer
+- Check terminal for "📌 Storing enriched event" messages
 
-## Testing Strategy
+### Excel Values Not Captured
+- Excel must be running before Python service starts
+- On macOS: Grant automation permissions for Terminal
+- Check for "📊 Excel: Selected" messages in Python terminal
 
-Jest with Electron mocking:
+## IPC Event Flow
+
+Critical channels:
+- `capture:start/stop` → Recording control
+- `capture:activity` → Browser/system events
+- `capture:python-event` → Python service events
+- `mark-before:start` → Intent capture
+- `browser:connect` → CDP connection
+- `browser:saveSession` → Capture auth state
+- `session:capture/load` → Session management
+- `step:start/end` → Step boundary grouping
+
+## Testing Approach
+
 ```javascript
+// Jest with Electron mocking
 // test/mocks/electron.js provides fake Electron APIs
-// Tests run in Node environment
-// Coverage excludes renderer (for now)
+// Run single test: npm test -- path/to/test.js
 ```
 
-## Platform Requirements
+## Platform-Specific Notes
 
 ### macOS
-- Accessibility permission required
-- Screen Recording permission for enhanced capture
+- Accessibility + Screen Recording permissions required
+- AppleScript for Excel integration
+- Quartz for window management
 
-### Windows  
+### Windows
 - May need Administrator for some apps
+- pywin32 for Excel COM automation
 - Windows Defender may flag uiohook-napi
 
 ### Linux
-- User must be in `input` group: `sudo usermod -a -G input $USER`
+- User must be in `input` group
+- Limited Excel support (LibreOffice only)
 
 ## Security Considerations
 
 - NO passwords stored (only marks credential fields)
-- All data local in userData directory
-- Session files contain auth tokens - treat as passwords
-- Process Capture Studio activities auto-filtered
-- Browser runs in isolated worker process
+- Clipboard content limited to 1000 chars in storage
+- Session state contains auth tokens - handle as passwords
+- Cookies and localStorage captured - treat exports securely
+- Excel formulas captured but not evaluated
+- Self-activity filtered to prevent recursion
+
+### Session Security Warning
+Session files allow bypassing login on replay. Store exports securely and never commit session state to version control.

@@ -29,6 +29,7 @@ class CaptureService extends EventEmitter {
         this.keystrokeBuffer = [];
         this.keystrokeTimeout = null;
         this.lastKeystrokeTime = 0;
+        this.pythonBridge = null; // Reference to Python bridge for Excel context
         
         this.importantPatterns = {
             copy: /ctrl\+c|cmd\+c/i,
@@ -173,6 +174,14 @@ class CaptureService extends EventEmitter {
         } catch (error) {
             console.error('Error checking permissions:', error);
         }
+    }
+    
+    /**
+     * Set Python bridge reference for Excel context
+     */
+    setPythonBridge(bridge) {
+        this.pythonBridge = bridge;
+        console.log('Python bridge connected to capture service');
     }
 
     /**
@@ -363,6 +372,22 @@ class CaptureService extends EventEmitter {
         // Detect patterns
         if (isImportant) {
             activity.pattern = this.detectPattern(key);
+            
+            // Special handling for paste pattern to capture Excel destination
+            if (activity.pattern === 'paste' && context.application?.includes('Excel')) {
+                console.log('📋 Paste detected in Excel - requesting destination context');
+                
+                // Request Excel context from Python service
+                if (this.pythonBridge && this.pythonBridge.sendToPython) {
+                    this.pythonBridge.sendToPython({
+                        type: 'capture_paste_destination',
+                        timestamp: activity.timestamp
+                    });
+                    
+                    // Mark that we're waiting for Excel destination
+                    activity.waitingForExcelDestination = true;
+                }
+            }
         }
         
         // console.log('Keystroke activity created:', activity); // Commented to prevent EPIPE
