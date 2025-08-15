@@ -31,6 +31,10 @@ npm start:modern
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Mac%20%7C%20Linux-green)
 ![License](https://img.shields.io/badge/license-MIT-orange)
 
+## 📚 GitHub Workflow Guide
+
+For developers new to GitHub collaboration, see our [GitHub Workflow Example](#github-workflow-example) below.
+
 ## 🌟 The Revolution
 
 Stop recording steps. Start capturing intelligence.
@@ -483,3 +487,48 @@ Built with:
 ---
 
 *Built with ❤️ for process professionals who know there's a better way*
+
+## GitHub Workflow Example
+
+This section demonstrates the GitHub feature branch workflow:
+
+### Creating a Feature Branch
+```bash
+# Create and switch to a new branch
+git checkout -b feature/your-feature-name
+
+# Make your changes
+# Edit files, add new features, fix bugs
+
+# Stage and commit changes
+git add .
+git commit -m "Add your feature description"
+
+# Push branch to GitHub
+git push -u origin feature/your-feature-name
+```
+
+### Creating a Pull Request
+1. Go to GitHub repository
+2. Click "Compare & pull request" button
+3. Add description of changes
+4. Request reviewers if needed
+5. Click "Create pull request"
+
+### Merging to Main
+After review and approval:
+```bash
+# Option 1: Merge via GitHub UI (recommended)
+# Click "Merge pull request" on GitHub
+
+# Option 2: Merge locally
+git checkout main
+git merge feature/your-feature-name
+git push origin main
+
+# Clean up feature branch
+git branch -d feature/your-feature-name
+git push origin --delete feature/your-feature-name
+```
+
+This example change was made on the `feature/improve-readme` branch to demonstrate the workflow!
