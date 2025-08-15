@@ -93,12 +93,21 @@ class StepBoundaryHandler {
             
             // Log sample event to verify browser context
             if (stepEvents.length > 0) {
-                const sampleEvent = stepEvents.find(e => e.element?.selector) || stepEvents[0];
+                const sampleEvent = stepEvents.find(e => e.element?.selectors) || stepEvents[0];
                 console.log('[StepBoundary] Sample event with browser context:', {
                     type: sampleEvent.type,
-                    element: sampleEvent.element,
-                    pageContext: sampleEvent.pageContext
+                    hasElement: !!sampleEvent.element,
+                    hasSelectors: !!sampleEvent.element?.selectors,
+                    selector: sampleEvent.element?.selectors?.css,
+                    xpath: sampleEvent.element?.selectors?.xpath,
+                    pageUrl: sampleEvent.pageContext?.url
                 });
+                
+                // Log full structure for first event with browser context
+                if (sampleEvent.element?.selectors) {
+                    console.log('[StepBoundary] Full element structure captured:', 
+                        JSON.stringify(sampleEvent.element, null, 2).substring(0, 500));
+                }
             }
         } else {
             // Fallback to local buffer if capture service not connected

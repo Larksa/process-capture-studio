@@ -543,6 +543,43 @@ class ProcessCaptureApp {
             }
         });
         
+        // Listen for Python file system events
+        window.electronAPI.onPythonEvent((event) => {
+            console.log('📁 Python event:', event);
+            
+            // Add to activity tracker with special formatting
+            if (this.tracker) {
+                // Format the event for display
+                const formattedEvent = {
+                    ...event,
+                    type: event.type || 'file-operation',
+                    icon: this.getIconForPythonEvent(event),
+                    color: '#4CAF50' // Green for file operations
+                };
+                this.tracker.addActivity(formattedEvent);
+            }
+            
+            // Add chat notification for important operations
+            if (event.type === 'file-operation' && event.action === 'move') {
+                this.addChatMessage('ai', `📁 File moved: ${event.filename} to ${event.context?.parent_folder || 'folder'}`);
+            } else if (event.type === 'excel-operation') {
+                this.addChatMessage('ai', `📊 Excel: ${event.description}`);
+            } else if (event.type === 'clipboard' && event.action === 'copy') {
+                // Show clipboard capture in chat
+                const sourceDoc = event.source?.document || event.source?.window_title || 'Unknown source';
+                this.addChatMessage('ai', `📋 Copied ${event.dataType}: "${event.contentPreview}" from ${sourceDoc}`);
+                
+                // Store clipboard content for paste tracking
+                this.lastClipboard = {
+                    content: event.content,
+                    preview: event.contentPreview,
+                    source: event.source,
+                    dataType: event.dataType,
+                    timestamp: event.timestamp
+                };
+            }
+        });
+        
         // Listen for browser status updates
         window.electronAPI.onBrowserStatusUpdate((status) => {
             console.log('Browser status update:', status);
@@ -2388,6 +2425,28 @@ class ProcessCaptureApp {
         }
     }
 
+    /**
+     * Get icon for Python event type
+     */
+    getIconForPythonEvent(event) {
+        if (event.type === 'file-operation') {
+            switch(event.action) {
+                case 'move': return '➡️';
+                case 'create': return '➕';
+                case 'delete': return '🗑️';
+                case 'modify': return '✏️';
+                default: return '📁';
+            }
+        } else if (event.type === 'excel-operation') {
+            return '📊';
+        } else if (event.type === 'clipboard') {
+            return '📋';
+        } else if (event.type === 'system') {
+            return '⚙️';
+        }
+        return '📌';
+    }
+    
     /**
      * Show help
      */

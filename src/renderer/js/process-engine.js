@@ -607,6 +607,14 @@ class ProcessEngine {
                             }
                         }
                         
+                        // Special handling for PDF embeds
+                        if (tag === 'embed' && selectors.attributes?.type === 'application/pdf') {
+                            log += `    PDF Document: Yes\n`;
+                            if (selectors.attributes?.name) {
+                                log += `    PDF ID: ${selectors.attributes.name}\n`;
+                            }
+                        }
+                        
                         // Element position if available
                         if (event.element.position) {
                             const pos = event.element.position;

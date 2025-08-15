@@ -11,6 +11,7 @@ const CaptureService = require('./capture-service');
 const WindowManager = require('./window-manager');
 const MarkBeforeHandler = require('./mark-before-handler');
 const StepBoundaryHandler = require('./step-boundary-handler');
+const PythonBridge = require('./python-bridge');
 
 // Keep references to avoid garbage collection
 let mainWindow = null;
@@ -18,6 +19,7 @@ let captureService = null;
 let windowManager = null;
 let markBeforeHandler = null;
 let stepBoundaryHandler = null;
+let pythonBridge = null;
 let tray = null;
 let browserWorker = null;
 let browserWorkerRequests = new Map(); // Track pending requests
@@ -131,6 +133,17 @@ function createMainWindow() {
 function initializeServices() {
     // Initialize capture service
     captureService = new CaptureService();
+    
+    // Initialize Python bridge for file system capture
+    pythonBridge = new PythonBridge();
+    pythonBridge.start(captureService);
+    
+    // Forward Python events to renderer
+    pythonBridge.on('python-event', (event) => {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('capture:python-event', event);
+        }
+    });
     
     // Initialize mark before handler
     markBeforeHandler = new MarkBeforeHandler();
@@ -960,6 +973,12 @@ app.on('before-quit', () => {
     if (browserWorker) {
         browserWorker.kill('SIGTERM');
         browserWorker = null;
+    }
+    
+    // Cleanup Python bridge
+    if (pythonBridge) {
+        pythonBridge.stop();
+        pythonBridge = null;
     }
     
     // Cleanup capture service

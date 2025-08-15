@@ -20,6 +20,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
         ipcRenderer.on('capture:activity', (event, data) => callback(data));
     },
     
+    // Listen for Python capture events (file system, Excel, etc)
+    onPythonEvent: (callback) => {
+        ipcRenderer.on('capture:python-event', (event, data) => callback(data));
+    },
+    
     // Step Boundary methods
     startStep: (data) => ipcRenderer.invoke('step:start', data),
     endStep: (data) => ipcRenderer.invoke('step:end', data),

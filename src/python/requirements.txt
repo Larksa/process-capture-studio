@@ -1,0 +1,14 @@
+# Process Capture Studio - Python Dependencies
+watchdog>=3.0.0  # File system monitoring
+websockets>=11.0  # WebSocket client for Electron communication
+psutil>=5.9.0  # Process and system utilities
+pyperclip>=1.8.2  # Cross-platform clipboard monitoring
+
+# Platform-specific dependencies (install as needed)
+# Windows:
+# pywin32>=305  # For Windows COM and Excel integration
+
+# macOS:
+# pyobjc-core>=9.0  # For macOS system integration
+# pyobjc-framework-Quartz>=9.0  # For window management
+# py-applescript>=1.0.3  # For AppleScript integration
