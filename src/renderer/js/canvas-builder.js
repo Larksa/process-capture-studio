@@ -437,6 +437,13 @@ class CanvasBuilder {
             this.editNode(nodeData.id);
         });
         
+        // Right-click context menu
+        node.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            this.showNodeContextMenu(nodeData, e.clientX, e.clientY);
+        });
+        
         return node;
     }
 
@@ -860,6 +867,123 @@ class CanvasBuilder {
             document.addEventListener('click', hideMenu);
         }, 0);
     }
+    
+    /**
+     * Show enhanced node context menu with details and replay options
+     */
+    showNodeContextMenu(nodeData, x, y) {
+        // Remove any existing context menu
+        const existingMenu = document.getElementById('node-context-menu');
+        if (existingMenu) {
+            existingMenu.remove();
+        }
+        
+        // Create context menu
+        const menu = document.createElement('div');
+        menu.id = 'node-context-menu';
+        menu.className = 'context-menu';
+        menu.style.cssText = `
+            position: fixed;
+            left: ${x}px;
+            top: ${y}px;
+            background: white;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            padding: 8px 0;
+            z-index: 10000;
+            min-width: 200px;
+        `;
+        
+        // Menu items based on node type
+        const menuItems = [];
+        
+        // Always show view details
+        menuItems.push({ icon: '📋', label: 'View Step Details', action: 'view-details' });
+        
+        // Show code option if node has events
+        if (nodeData.data?.events || nodeData.events) {
+            menuItems.push({ icon: '💻', label: 'View Generated Code', action: 'view-code' });
+            menuItems.push({ icon: '▶️', label: 'Replay This Step', action: 'replay-step' });
+        }
+        
+        // Standard actions
+        menuItems.push(
+            { icon: '🌿', label: 'Branch From Here', action: 'branch' },
+            { icon: '✏️', label: 'Edit Description', action: 'edit' },
+            { icon: '🗑️', label: 'Delete Step', action: 'delete' }
+        );
+        
+        menuItems.forEach(item => {
+            const menuItem = document.createElement('div');
+            menuItem.className = 'menu-item';
+            menuItem.style.cssText = `
+                padding: 8px 16px;
+                cursor: pointer;
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                transition: background 0.2s;
+            `;
+            menuItem.innerHTML = `<span>${item.icon}</span><span>${item.label}</span>`;
+            
+            menuItem.addEventListener('mouseenter', () => {
+                menuItem.style.background = '#f0f0f0';
+            });
+            
+            menuItem.addEventListener('mouseleave', () => {
+                menuItem.style.background = 'transparent';
+            });
+            
+            menuItem.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this.handleEnhancedNodeAction(nodeData, item.action);
+                menu.remove();
+            });
+            
+            menu.appendChild(menuItem);
+        });
+        
+        document.body.appendChild(menu);
+        
+        // Hide menu on click outside
+        const hideMenu = (e) => {
+            if (!menu.contains(e.target)) {
+                menu.remove();
+                document.removeEventListener('click', hideMenu);
+            }
+        };
+        
+        setTimeout(() => {
+            document.addEventListener('click', hideMenu);
+        }, 0);
+    }
+    
+    /**
+     * Handle enhanced node menu actions
+     */
+    handleEnhancedNodeAction(nodeData, action) {
+        switch (action) {
+            case 'view-details':
+                this.showStepDetailsModal(nodeData);
+                break;
+            case 'view-code':
+                this.showGeneratedCode(nodeData);
+                break;
+            case 'replay-step':
+                this.replayStep(nodeData);
+                break;
+            case 'branch':
+                this.startBranchRecording(nodeData.id);
+                break;
+            case 'edit':
+                this.editNode(nodeData.id);
+                break;
+            case 'delete':
+                this.deleteNode(nodeData.id);
+                break;
+        }
+    }
 
     /**
      * Handle node menu actions
@@ -1237,6 +1361,262 @@ class CanvasBuilder {
                 this.clear();
                 break;
         }
+    }
+    
+    /**
+     * Show step details modal
+     */
+    showStepDetailsModal(nodeData) {
+        // Remove existing modal if any
+        const existingModal = document.getElementById('step-details-modal');
+        if (existingModal) {
+            existingModal.remove();
+        }
+        
+        // Create modal overlay
+        const modal = document.createElement('div');
+        modal.id = 'step-details-modal';
+        modal.style.cssText = `
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 10000;
+        `;
+        
+        // Create modal content
+        const content = document.createElement('div');
+        content.style.cssText = `
+            background: white;
+            border-radius: 12px;
+            padding: 24px;
+            max-width: 600px;
+            max-height: 80vh;
+            overflow-y: auto;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+        `;
+        
+        // Get events from the node data
+        const events = nodeData.data?.events || nodeData.events || [];
+        
+        content.innerHTML = `
+            <h2 style="margin-top: 0;">📋 Step Details</h2>
+            <div style="margin-bottom: 16px;">
+                <strong>Title:</strong> ${nodeData.title || 'Unnamed Step'}<br>
+                <strong>Description:</strong> ${nodeData.description || 'No description'}<br>
+                <strong>Duration:</strong> ${nodeData.duration ? (nodeData.duration / 1000).toFixed(1) + 's' : 'N/A'}<br>
+                <strong>Events Captured:</strong> ${events.length}
+            </div>
+            
+            <h3>🎯 Captured Events:</h3>
+            <div style="max-height: 300px; overflow-y: auto; border: 1px solid #eee; border-radius: 8px; padding: 12px;">
+                ${events.length > 0 ? events.map((event, index) => `
+                    <div style="margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px solid #f0f0f0;">
+                        <strong>${index + 1}. ${event.type}</strong>
+                        ${event.element?.selector ? `<br><code style="font-size: 11px;">${event.element.selector}</code>` : ''}
+                        ${event.element?.text ? `<br>Text: "${event.element.text.substring(0, 50)}"` : ''}
+                        ${event.pageContext?.url ? `<br>URL: ${event.pageContext.url}` : ''}
+                        ${event.text ? `<br>Typed: "${event.text.substring(0, 50)}"` : ''}
+                    </div>
+                `).join('') : '<em>No events captured</em>'}
+            </div>
+            
+            ${nodeData.data?.keyElements?.length > 0 ? `
+                <h3>🔑 Key Elements:</h3>
+                <div style="border: 1px solid #eee; border-radius: 8px; padding: 12px;">
+                    ${nodeData.data.keyElements.map(el => `
+                        <div style="margin-bottom: 8px;">
+                            <strong>${el.type || el.tagName}:</strong> ${el.selector}<br>
+                            ${el.text ? `Text: "${el.text}"<br>` : ''}
+                            ${el.id ? `ID: ${el.id}<br>` : ''}
+                        </div>
+                    `).join('')}
+                </div>
+            ` : ''}
+            
+            <button id="close-modal" style="
+                margin-top: 20px;
+                padding: 8px 16px;
+                background: var(--accent-primary);
+                color: white;
+                border: none;
+                border-radius: 6px;
+                cursor: pointer;
+            ">Close</button>
+        `;
+        
+        modal.appendChild(content);
+        document.body.appendChild(modal);
+        
+        // Close button handler
+        document.getElementById('close-modal').addEventListener('click', () => {
+            modal.remove();
+        });
+        
+        // Close on overlay click
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) {
+                modal.remove();
+            }
+        });
+    }
+    
+    /**
+     * Show generated code for a node
+     */
+    showGeneratedCode(nodeData) {
+        // Get the ProcessEngine instance
+        const engine = window.processEngine || window.processApp?.engine;
+        if (!engine) {
+            alert('Process engine not available');
+            return;
+        }
+        
+        // Generate Playwright code for this single node
+        const code = engine.stepNodeToPlaywrightCode(nodeData);
+        
+        // Create modal
+        const modal = document.createElement('div');
+        modal.style.cssText = `
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 10000;
+        `;
+        
+        const content = document.createElement('div');
+        content.style.cssText = `
+            background: white;
+            border-radius: 12px;
+            padding: 24px;
+            max-width: 800px;
+            max-height: 80vh;
+            overflow-y: auto;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+        `;
+        
+        content.innerHTML = `
+            <h2 style="margin-top: 0;">💻 Generated Automation Code</h2>
+            <p>Playwright code for: <strong>${nodeData.title || 'Step'}</strong></p>
+            <pre style="
+                background: #f5f5f5;
+                padding: 16px;
+                border-radius: 8px;
+                overflow-x: auto;
+                font-family: 'Courier New', monospace;
+                font-size: 12px;
+                line-height: 1.5;
+            ">${code.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</pre>
+            
+            <div style="margin-top: 16px;">
+                <button id="copy-code" style="
+                    padding: 8px 16px;
+                    background: var(--accent-primary);
+                    color: white;
+                    border: none;
+                    border-radius: 6px;
+                    cursor: pointer;
+                    margin-right: 8px;
+                ">📋 Copy Code</button>
+                
+                <button id="close-code-modal" style="
+                    padding: 8px 16px;
+                    background: #666;
+                    color: white;
+                    border: none;
+                    border-radius: 6px;
+                    cursor: pointer;
+                ">Close</button>
+            </div>
+        `;
+        
+        modal.appendChild(content);
+        document.body.appendChild(modal);
+        
+        // Copy button handler
+        document.getElementById('copy-code').addEventListener('click', () => {
+            navigator.clipboard.writeText(code).then(() => {
+                const btn = document.getElementById('copy-code');
+                btn.textContent = '✅ Copied!';
+                setTimeout(() => {
+                    btn.textContent = '📋 Copy Code';
+                }, 2000);
+            });
+        });
+        
+        // Close button handler
+        document.getElementById('close-code-modal').addEventListener('click', () => {
+            modal.remove();
+        });
+        
+        // Close on overlay click
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) {
+                modal.remove();
+            }
+        });
+    }
+    
+    /**
+     * Replay a single step (placeholder for future implementation)
+     */
+    replayStep(nodeData) {
+        console.log('[Canvas] Replay step requested for:', nodeData);
+        
+        // This would integrate with Playwright to replay the step
+        // For now, show a message
+        const modal = document.createElement('div');
+        modal.style.cssText = `
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: white;
+            padding: 24px;
+            border-radius: 12px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+            z-index: 10000;
+        `;
+        
+        modal.innerHTML = `
+            <h3>▶️ Step Replay</h3>
+            <p>Replaying: <strong>${nodeData.title || 'Step'}</strong></p>
+            <p style="color: #666;">This feature will execute the captured actions using Playwright.</p>
+            <p style="color: #28a745;">Coming soon in the next update!</p>
+            <button id="close-replay" style="
+                margin-top: 16px;
+                padding: 8px 16px;
+                background: var(--accent-primary);
+                color: white;
+                border: none;
+                border-radius: 6px;
+                cursor: pointer;
+            ">OK</button>
+        `;
+        
+        document.body.appendChild(modal);
+        
+        document.getElementById('close-replay').addEventListener('click', () => {
+            modal.remove();
+        });
+        
+        // Auto-close after 3 seconds
+        setTimeout(() => {
+            if (document.body.contains(modal)) {
+                modal.remove();
+            }
+        }, 3000);
     }
 }
 

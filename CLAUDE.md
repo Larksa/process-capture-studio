@@ -4,77 +4,29 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Process Capture Studio is an Electron-based RPA platform that captures user workflows WITH FULL CONTEXT and converts them into automation-ready code. It captures not just WHAT users do, but WHY they do it - combining UiPath-level technical capability with AI-powered reasoning capture.
+Process Capture Studio is an Electron app that captures user workflows WITH context and converts them to automation code. Key differentiator: captures WHY users do things, not just WHAT they do.
 
-## Architecture
+## Critical Architecture: Three-Process Model
 
-### Multi-Process Architecture (Critical)
-The application uses THREE separate processes to handle async operations:
-- **Main Process**: Electron main process handles IPC, window management, and spawns workers
-- **Renderer Process**: UI and user interaction
-- **Browser Worker Process**: Separate Node.js process (`browser-context-worker.js`) for Playwright operations
-  - Spawned via `fork()` to avoid Electron async conflicts
-  - Communicates via process IPC messages
-  - Handles all CDP/browser context operations
+The app uses THREE separate processes to avoid Electron async conflicts:
 
-### Communication Flow
 ```
-User Action → Renderer → Main Process → Worker Process
-                ↓           ↓              ↓
-            UI Update   Capture Service  Browser Context
+Main Process (main.js) → spawns → Browser Worker (browser-context-worker.js)
+     ↓                                    ↓
+Renderer Process                    Playwright CDP Operations
 ```
 
-## Development Commands
-
-```bash
-# Install and setup
-npm install              # Install dependencies
-npm run rebuild          # Rebuild native modules (REQUIRED if uiohook-napi fails)
-
-# Development
-npm run dev              # Development mode with auto-reload and DevTools
-npm start                # Production mode
-
-# Testing
-npm test                 # Run all tests
-npm test:watch          # Run tests in watch mode
-npm test:coverage       # Generate coverage report
-npm test:e2e            # Run Playwright e2e tests
-npm test -- test/unit/mark-before-handler.test.js  # Run specific test
-
-# Building
-npm run build            # Build for current platform
-npm run build:win        # Windows executable
-npm run build:mac        # macOS app
-npm run build:linux      # Linux AppImage
-
-# Cleanup
-npm run clean            # Remove dist, builds, node_modules
-```
-
-## Critical Patterns
-
-### 1. Mark Before Pattern (Revolutionary)
-Captures intent BEFORE actions for cleaner data:
+### Worker Communication Pattern
 ```javascript
-// Instead of: capture → guess intent
-// We do: declare intent → capture → group related events
-markBeforeHandler.startMarkMode(description);
-// Captures next 30 seconds of activity as single grouped action
-```
-
-### 2. Browser Context via Worker Process
-Separate process for async Playwright operations:
-```javascript
-// Main process spawns worker
+// Main spawns worker
 browserWorker = fork(path.join(__dirname, 'browser-context-worker.js'));
 
-// Send request with unique ID
+// Request with unique ID
 const requestId = Date.now().toString();
 browserWorkerRequests.set(requestId, { resolve, reject });
-browserWorker.send({ id: requestId, type: 'connect', data });
+browserWorker.send({ id: requestId, type: 'action', data });
 
-// Worker responds with same ID
+// Worker responds
 process.on('message', ({ id, result, error }) => {
   const request = browserWorkerRequests.get(id);
   if (request) {
@@ -84,176 +36,144 @@ process.on('message', ({ id, result, error }) => {
 });
 ```
 
-### 3. Activity Data Evolution Pattern
+## Development Commands
+
+```bash
+# Setup (CRITICAL if uiohook-napi fails)
+npm install && npm run rebuild
+
+# Development
+npm run dev              # Dev mode with auto-reload
+npm start                # Production mode
+npm start:modern         # New terminal UI (experimental)
+
+# Testing
+npm test                 # All tests
+npm test -- test/unit/mark-before-handler.test.js  # Single test
+npm test:watch          # Watch mode
+npm test:coverage       # Coverage report
+
+# Build
+npm run build           # Current platform
+npm run build:mac       # macOS .dmg
+npm run build:win       # Windows .exe
+npm run build:linux     # Linux AppImage
+```
+
+## Core Patterns
+
+### 1. Mark Before Pattern (Intent-First Capture)
+User declares intent BEFORE performing actions:
 ```javascript
-// Basic capture
+// User presses Cmd+Shift+M → Dialog appears
+// User types intent → System captures next 30s of activity
+markBeforeHandler.startMarkMode(description);
+// Groups all events under single intent node
+```
+
+### 2. Activity Data Structure Evolution
+```javascript
+// Level 1: Basic capture
 { type: 'click', x: 100, y: 200 }
 
-// With Mark Before grouping
-{
-  type: 'grouped_action',
-  description: 'User intent',
-  events: [...],
-  duration: 3500
-}
-
-// With CDP context
+// Level 2: With browser context (via CDP)
 {
   type: 'click',
   coordinates: { x, y },
-  element: { selector, xpath, text },
-  context: { app, url, title }
+  element: { selector: '#button', xpath: '//button[@id="submit"]' },
+  context: { url, title, app }
+}
+
+// Level 3: With Mark Before grouping
+{
+  type: 'grouped_action',
+  description: 'Submit customer form',
+  events: [...nested events with full context...],
+  duration: 3500
 }
 ```
 
-### 4. Self-Activity Filtering
+### 3. Self-Activity Filtering (Critical)
 ```javascript
+// Must filter out Process Capture Studio's own clicks
 const isOwnProcess = activeApp?.name?.includes('Process Capture Studio') || 
                     activeApp?.owner?.name?.includes('Electron');
 if (isOwnProcess) return; // Skip capture
 ```
 
-## IPC Communication Patterns
-
-### Main → Renderer
+### 4. Browser Session Persistence
 ```javascript
-mainWindow.webContents.send('event-name', data);
+// Capture authenticated state
+const sessionState = await browserContextService.saveSession();
+// Includes cookies, localStorage, sessionStorage
+
+// Replay with auth
+await browserContextService.loadSession(sessionState);
 ```
 
-### Renderer → Main (async)
-```javascript
-const result = await window.electronAPI.invoke('action-name', data);
-```
+## IPC Event Flow
 
-### Main → Worker Process
-```javascript
-browserWorker.send({ id: uniqueId, type: 'action', data });
-```
+Critical IPC channels:
+- `capture:start/stop` → Recording control
+- `mark-before:start` → Intent capture (30s window)
+- `browser:connect` → CDP via worker process
+- `browser:saveSession` → Capture auth state
+- `capture:activity` → Activity data stream
 
-### Critical IPC Events
-- `capture:start/stop` - Recording control
-- `mark-before:start` - Intent capture mode (30s window)
-- `browser:connect` - CDP connection via worker
-- `capture:activity` - Activity data flow
+## Export System
 
-## Testing Patterns
-
-### Jest Configuration
-- Environment: Node
-- Electron mocking: `/test/mocks/electron.js`
-- Coverage excludes renderer (for now)
-- Timeout: 10 seconds
-
-### Test Structure
-```
-test/
-├── unit/           # Individual module tests
-├── integration/    # Feature flow tests
-├── e2e/           # Playwright E2E tests
-├── mocks/         # Electron mock
-└── utils/         # Test helpers
-```
-
-### Running Tests
-```bash
-npm test                    # All tests
-npm test -- --watch        # Watch mode
-npm test -- path/to/test   # Specific test
-```
+ProcessEngine generates different formats for different needs:
+- **Playwright/Puppeteer** → Web automation with DOM selectors
+- **Python/pyautogui** → Desktop apps, cross-application workflows
+- **Selenium** → Enterprise standard
+- **JSON** → Complete process data with context
+- **Markdown** → Human documentation
 
 ## Common Issues & Solutions
 
 ### uiohook-napi Build Failure
 ```bash
-npm run rebuild  # Must rebuild after install
-# or
-npm install --build-from-source
+npm run rebuild  # MUST run after npm install
 ```
 
-### macOS Permissions Required
-- System Preferences → Security & Privacy → Accessibility
-- Add BOTH Terminal/VS Code AND Electron app
+### macOS Permissions
+System Preferences → Security & Privacy → Accessibility
+Add BOTH Terminal/VS Code AND Electron app
 
 ### Browser Context Not Working
 1. Click "Launch Capture Browser" first
 2. Check worker: `ps aux | grep browser-context-worker`
 3. Browser needs `--remote-debugging-port=9222`
 
-### Crypto.randomUUID Polyfill
-Already implemented in `app.js`:
+### EPIPE Errors
+Already handled in main.js - ignores broken worker connections gracefully
+
+## Testing Strategy
+
+Jest with Electron mocking:
 ```javascript
-if (!crypto.randomUUID) {
-  crypto.randomUUID = function() { /* polyfill */ };
-}
+// test/mocks/electron.js provides fake Electron APIs
+// Tests run in Node environment
+// Coverage excludes renderer (for now)
 ```
 
-## Development Workflow
-
-### Adding New Capture Capability
-1. Create service in `src/main/`
-2. Add IPC handlers in `main.js`
-3. Update data structure in `process-engine.js`
-4. Add UI feedback in `activity-tracker.js`
-5. Write tests in `test/unit/`
-
-### Debugging Commands
-```bash
-# Check capture status (DevTools console)
-await window.electronAPI.invoke('capture:status')
-
-# Test Mark Before
-window.electronAPI.invoke('mark-before:start', 'Test action')
-
-# Check browser worker
-ps aux | grep browser-context-worker
-
-# Force rebuild
-rm -rf node_modules package-lock.json
-npm install && npm run rebuild
-```
-
-## Export System
-
-ProcessEngine exports to:
-- **JSON** - Complete process data
-- **Playwright** - Browser automation
-- **Python** - Desktop automation (pyautogui)
-- **Markdown** - Documentation
-- **Mermaid** - Flowcharts
-
-Export flow:
-1. User clicks Export
-2. Select format
-3. Save dialog
-4. File written to chosen location
-
-## Platform-Specific Requirements
+## Platform Requirements
 
 ### macOS
 - Accessibility permission required
-- Screen Recording for enhanced capture
-- Hardened runtime with entitlements
+- Screen Recording permission for enhanced capture
 
-### Windows
-- May need Administrator privileges
-- Windows Defender false positive on uiohook-napi
+### Windows  
+- May need Administrator for some apps
+- Windows Defender may flag uiohook-napi
 
 ### Linux
-- User must be in `input` group
-- `sudo usermod -a -G input $USER`
-- Logout required after group change
+- User must be in `input` group: `sudo usermod -a -G input $USER`
 
-## Global Shortcuts
+## Security Considerations
 
-- `Ctrl/Cmd+Shift+S` - Start/stop capture
-- `Ctrl/Cmd+Shift+M` - Mark important step
-- `Ctrl/Cmd+E` - Quick export
-- `F9` - Toggle window visibility
-
-## Security Notes
-
-- No passwords stored (only marked as credential fields)
+- NO passwords stored (only marks credential fields)
 - All data local in userData directory
-- No cloud connectivity by default
+- Session files contain auth tokens - treat as passwords
 - Process Capture Studio activities auto-filtered
-- Browser context runs in isolated process
+- Browser runs in isolated worker process

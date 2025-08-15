@@ -13,6 +13,7 @@ class StepBoundaryHandler {
         this.stepStartTime = null;
         this.mainWindow = null;
         this.stepCounter = 0;
+        this.captureService = null; // Reference to capture service for global buffer
     }
     
     /**
@@ -20,6 +21,14 @@ class StepBoundaryHandler {
      */
     init(mainWindow) {
         this.mainWindow = mainWindow;
+    }
+    
+    /**
+     * Set capture service reference for accessing global event buffer
+     */
+    setCaptureService(captureService) {
+        this.captureService = captureService;
+        console.log('[StepBoundary] Connected to capture service for global event buffer');
     }
     
     /**
@@ -38,13 +47,20 @@ class StepBoundaryHandler {
         this.capturedEvents = [];
         this.stepCounter++;
         
+        // Mark the current position in global buffer so we know where this step starts
+        this.stepStartBufferIndex = this.captureService ? 
+            this.captureService.getGlobalEventBuffer().length : 0;
+        
         this.currentStep = {
             id: `step-${this.stepCounter}`,
             name: description || `Step ${this.stepCounter}`,
             startTime: this.stepStartTime,
             events: [],
-            status: 'recording'
+            status: 'recording',
+            startBufferIndex: this.stepStartBufferIndex
         };
+        
+        console.log(`[StepBoundary] Step starting at global buffer index: ${this.stepStartBufferIndex}`);
         
         // Notify renderer that step has started
         if (this.mainWindow) {
@@ -67,33 +83,56 @@ class StepBoundaryHandler {
             return null;
         }
         
-        console.log(`[StepBoundary] Ending step. Mode: ${mode}, Events: ${this.capturedEvents.length}`);
+        // Get events from global buffer if available, otherwise use local buffer
+        let stepEvents = [];
+        if (this.captureService) {
+            const globalBuffer = this.captureService.getGlobalEventBuffer();
+            // Extract events that occurred during this step
+            stepEvents = globalBuffer.slice(this.stepStartBufferIndex);
+            console.log(`[StepBoundary] Retrieved ${stepEvents.length} events from global buffer (index ${this.stepStartBufferIndex} to ${globalBuffer.length})`);
+            
+            // Log sample event to verify browser context
+            if (stepEvents.length > 0) {
+                const sampleEvent = stepEvents.find(e => e.element?.selector) || stepEvents[0];
+                console.log('[StepBoundary] Sample event with browser context:', {
+                    type: sampleEvent.type,
+                    element: sampleEvent.element,
+                    pageContext: sampleEvent.pageContext
+                });
+            }
+        } else {
+            // Fallback to local buffer if capture service not connected
+            stepEvents = this.capturedEvents;
+            console.log('[StepBoundary] Using local buffer (capture service not connected)');
+        }
+        
+        console.log(`[StepBoundary] Ending step. Mode: ${mode}, Events: ${stepEvents.length}`);
         
         const duration = Date.now() - this.stepStartTime;
         
-        // Package the step data
+        // Package the step data with enriched events from global buffer
         const stepData = {
             id: this.currentStep.id,
             name: this.currentStep.name,
             startTime: this.stepStartTime,
             endTime: Date.now(),
             duration: duration,
-            events: this.capturedEvents,
-            eventCount: this.capturedEvents.length,
+            events: stepEvents, // Now using enriched events from global buffer
+            eventCount: stepEvents.length,
             mode: mode, // 'quick' or 'detailed'
             additionalContext: additionalContext,
             
             // Smart summary of what happened
-            summary: this.generateStepSummary(this.capturedEvents),
+            summary: this.generateStepSummary(stepEvents),
             
             // Detect the primary action
-            primaryAction: this.detectPrimaryAction(this.capturedEvents),
+            primaryAction: this.detectPrimaryAction(stepEvents),
             
             // Extract key elements interacted with
-            keyElements: this.extractKeyElements(this.capturedEvents),
+            keyElements: this.extractKeyElements(stepEvents),
             
             // Detect if this was a form submission, login, search, etc.
-            patternType: this.detectPatternType(this.capturedEvents)
+            patternType: this.detectPatternType(stepEvents)
         };
         
         // Reset state
@@ -101,6 +140,7 @@ class StepBoundaryHandler {
         this.currentStep = null;
         this.capturedEvents = [];
         this.stepStartTime = null;
+        this.stepStartBufferIndex = 0;
         
         // Notify renderer that step has ended
         if (this.mainWindow && !this.mainWindow.isDestroyed()) {

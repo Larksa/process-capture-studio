@@ -143,6 +143,10 @@ function initializeServices() {
     if (mainWindow) {
         stepBoundaryHandler.init(mainWindow);
     }
+    // Connect to capture service for global event buffer
+    if (captureService) {
+        stepBoundaryHandler.setCaptureService(captureService);
+    }
     
     // Delay browser worker initialization to avoid EPIPE errors
     // Only initialize when actually needed or after a delay

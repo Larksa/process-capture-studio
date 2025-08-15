@@ -21,6 +21,10 @@ class CaptureService extends EventEmitter {
         this.isMarkingStep = false; // Flag to prevent recording during mark action
         this.browserContextGetter = null; // Function to get browser context from worker
         
+        // Global event buffer - source of truth for ALL captured data
+        this.globalEventBuffer = [];
+        this.maxBufferSize = 10000; // Keep last 10k events
+        
         // Keystroke buffering for text reconstruction
         this.keystrokeBuffer = [];
         this.keystrokeTimeout = null;
@@ -38,6 +42,48 @@ class CaptureService extends EventEmitter {
         };
     }
 
+    /**
+     * Store event in global buffer - source of truth
+     */
+    storeInGlobalBuffer(event) {
+        // Add timestamp if not present
+        if (!event.timestamp) {
+            event.timestamp = Date.now();
+        }
+        
+        // Log browser context if present
+        if (event.element?.selectors) {
+            console.log('📌 Storing enriched event in global buffer:', {
+                type: event.type,
+                selector: event.element.selectors.css,
+                xpath: event.element.selectors.xpath,
+                text: event.element.selectors.text?.substring(0, 30)
+            });
+        }
+        
+        // Add to buffer
+        this.globalEventBuffer.push(event);
+        
+        // Trim buffer if too large
+        if (this.globalEventBuffer.length > this.maxBufferSize) {
+            this.globalEventBuffer.shift();
+        }
+    }
+    
+    /**
+     * Get global event buffer
+     */
+    getGlobalEventBuffer() {
+        return [...this.globalEventBuffer]; // Return copy
+    }
+    
+    /**
+     * Clear global event buffer
+     */
+    clearGlobalEventBuffer() {
+        this.globalEventBuffer = [];
+    }
+    
     /**
      * Safe logging that won't crash with EPIPE
      */
@@ -149,14 +195,16 @@ class CaptureService extends EventEmitter {
                 console.log('Cmd+Shift+M detected - marking as important!');
                 // Always emit this special event
                 const context = await this.getContext();
-                this.emit('activity', {
+                const markEvent = {
                     type: 'mark_important',
                     timestamp: Date.now(),
                     context: context,
                     application: context.application,
                     window: context.window,
                     description: `Mark important step in ${context.application}`
-                });
+                };
+                this.storeInGlobalBuffer(markEvent);
+                this.emit('activity', markEvent);
                 return;
             }
             
@@ -423,11 +471,17 @@ class CaptureService extends EventEmitter {
                             activity.description += ` - ${browserData.pageContext.url}`;
                         }
                         
-                        console.log('Enhanced browser context captured:', {
+                        console.log('✅ Enhanced browser context captured:', {
                             selector: element.selectors?.css,
+                            xpath: element.selectors?.xpath,
+                            id: element.selectors?.id,
                             text: element.selectors?.text,
-                            url: browserData.pageContext?.url
+                            url: browserData.pageContext?.url,
+                            hasAttributes: !!element.selectors?.attributes
                         });
+                        
+                        // Log full element structure for debugging
+                        console.log('📊 Full element structure:', JSON.stringify(element, null, 2));
                     }
                 } catch (error) {
                     this.safeLog('Failed to get browser element context from worker:', error.message);
@@ -573,6 +627,7 @@ class CaptureService extends EventEmitter {
         
         // Check for important patterns
         if (this.shouldEmit(activity)) {
+            this.storeInGlobalBuffer(activity);
             this.emit('activity', activity);
         }
         
@@ -743,6 +798,7 @@ class CaptureService extends EventEmitter {
             recentActivities: this.activityBuffer.slice(-5)
         };
         
+        this.storeInGlobalBuffer(activity);
         this.emit('activity', activity);
         
         // Reset flag after a longer delay to ensure all related clicks are ignored

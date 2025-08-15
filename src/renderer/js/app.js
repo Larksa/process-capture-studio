@@ -478,20 +478,45 @@ class ProcessCaptureApp {
             }
         });
         
-        // Export dialog
-        document.getElementById('copy-export').addEventListener('click', () => {
-            const preview = document.getElementById('export-preview');
-            navigator.clipboard.writeText(preview.value);
-            this.showNotification('Copied to clipboard!');
-        });
+        // Export dialog buttons - with error checking
+        const copyBtn = document.getElementById('copy-export');
+        const downloadBtn = document.getElementById('download-export');
+        const closeBtn = document.getElementById('close-export');
         
-        document.getElementById('download-export').addEventListener('click', () => {
-            this.downloadExport();
-        });
+        if (copyBtn) {
+            copyBtn.addEventListener('click', () => {
+                console.log('Copy button clicked');
+                const preview = document.getElementById('export-preview');
+                if (preview && preview.value) {
+                    navigator.clipboard.writeText(preview.value).then(() => {
+                        this.showNotification('Copied to clipboard!');
+                    }).catch(err => {
+                        console.error('Failed to copy:', err);
+                        this.showNotification('Failed to copy to clipboard', 'error');
+                    });
+                }
+            });
+        } else {
+            console.warn('Copy export button not found');
+        }
         
-        document.getElementById('close-export').addEventListener('click', () => {
-            document.getElementById('export-dialog').classList.add('hidden');
-        });
+        if (downloadBtn) {
+            downloadBtn.addEventListener('click', () => {
+                console.log('Download button clicked');
+                this.downloadExport();
+            });
+        } else {
+            console.warn('Download export button not found');
+        }
+        
+        if (closeBtn) {
+            closeBtn.addEventListener('click', () => {
+                console.log('Close button clicked');
+                document.getElementById('export-dialog').classList.add('hidden');
+            });
+        } else {
+            console.warn('Close export button not found');
+        }
     }
 
     /**
@@ -673,6 +698,12 @@ class ProcessCaptureApp {
             console.log('Started system-wide capture');
         }
         
+        // AUTO-START STEP: Automatically start a step boundary to capture events
+        if (!this.isStepActive) {
+            console.log('[App] Auto-starting step boundary for capture');
+            this.startNewStep('Auto-capture session');
+        }
+        
         // Update UI
         document.getElementById('start-capture').disabled = true;
         document.getElementById('pause-capture').disabled = false;
@@ -730,14 +761,15 @@ class ProcessCaptureApp {
         this.isRecording = false;
         this.tracker.stopCapture();
         
+        // AUTO-END STEP: End any active step to save captured events
+        if (this.isStepActive) {
+            console.log('[App] Auto-ending step boundary on capture stop');
+            this.endCurrentStep('quick');
+        }
+        
         // Hide Step Boundary controls when capture stops
         if (this.elements.stepBoundaryControls) {
             this.elements.stepBoundaryControls.style.display = 'none';
-        }
-        
-        // End any active step
-        if (this.isStepActive) {
-            this.endCurrentStep();
         }
         
         // Update UI
@@ -2022,8 +2054,82 @@ class ProcessCaptureApp {
         const dialog = document.getElementById('export-dialog');
         dialog.classList.remove('hidden');
         
+        // Re-attach event listeners in case they were lost
+        this.attachExportDialogListeners();
+        
         // Default to JSON
         this.exportProcess('json');
+    }
+    
+    /**
+     * Attach export dialog event listeners
+     */
+    attachExportDialogListeners() {
+        // Remove existing listeners first to avoid duplicates
+        const copyBtn = document.getElementById('copy-export');
+        const downloadBtn = document.getElementById('download-export');
+        const closeBtn = document.getElementById('close-export');
+        
+        // Clone and replace to remove all existing listeners
+        if (copyBtn) {
+            const newCopyBtn = copyBtn.cloneNode(true);
+            copyBtn.parentNode.replaceChild(newCopyBtn, copyBtn);
+            newCopyBtn.addEventListener('click', () => {
+                console.log('Copy button clicked (re-attached)');
+                const preview = document.getElementById('export-preview');
+                if (preview && preview.value) {
+                    navigator.clipboard.writeText(preview.value).then(() => {
+                        this.showNotification('Copied to clipboard!', 'success');
+                    }).catch(err => {
+                        console.error('Failed to copy:', err);
+                        // Fallback method
+                        this.fallbackCopyToClipboard(preview.value);
+                    });
+                }
+            });
+        }
+        
+        if (downloadBtn) {
+            const newDownloadBtn = downloadBtn.cloneNode(true);
+            downloadBtn.parentNode.replaceChild(newDownloadBtn, downloadBtn);
+            newDownloadBtn.addEventListener('click', () => {
+                console.log('Download button clicked (re-attached)');
+                this.downloadExport();
+            });
+        }
+        
+        if (closeBtn) {
+            const newCloseBtn = closeBtn.cloneNode(true);
+            closeBtn.parentNode.replaceChild(newCloseBtn, closeBtn);
+            newCloseBtn.addEventListener('click', () => {
+                console.log('Close button clicked (re-attached)');
+                document.getElementById('export-dialog').classList.add('hidden');
+            });
+        }
+    }
+    
+    /**
+     * Fallback copy to clipboard method
+     */
+    fallbackCopyToClipboard(text) {
+        const textArea = document.createElement("textarea");
+        textArea.value = text;
+        textArea.style.position = "fixed";
+        textArea.style.left = "-999999px";
+        textArea.style.top = "-999999px";
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        
+        try {
+            document.execCommand('copy');
+            this.showNotification('Copied to clipboard!', 'success');
+        } catch (err) {
+            console.error('Fallback copy failed:', err);
+            this.showNotification('Failed to copy to clipboard', 'error');
+        }
+        
+        document.body.removeChild(textArea);
     }
 
     /**
@@ -2087,20 +2193,30 @@ class ProcessCaptureApp {
         
         const extensions = {
             'json': 'json',
+            'raw-log': 'txt',
             'yaml': 'yaml',
             'mermaid': 'md',
             'playwright': 'js',
+            'puppeteer': 'js',
+            'selenium': 'py',
             'python': 'py',
+            'markdown': 'md',
+            'plaintext': 'txt',
             'documentation': 'md'
         };
         
         // Create proper MIME types
         const mimeTypes = {
             'json': 'application/json',
+            'raw-log': 'text/plain',
             'yaml': 'text/yaml',
             'mermaid': 'text/markdown',
             'playwright': 'text/javascript',
+            'puppeteer': 'text/javascript',
+            'selenium': 'text/x-python',
             'python': 'text/x-python',
+            'markdown': 'text/markdown',
+            'plaintext': 'text/plain',
             'documentation': 'text/markdown'
         };
         
@@ -2864,6 +2980,8 @@ class ProcessCaptureApp {
      */
     handleStepCompleted(stepData) {
         console.log('[App] Step completed:', stepData);
+        console.log('[App] Step events:', stepData.events?.length || 0, 'events');
+        console.log('[App] Key elements:', stepData.keyElements);
         
         // Check if this step was already processed (prevent duplicates)
         if (this.engine.process.nodes.has(stepData.id)) {
@@ -2875,7 +2993,19 @@ class ProcessCaptureApp {
         // Get the ID of the previous node for edge creation
         const previousNodeId = this.lastCompletedStepId || null;
         
-        // Add step to process engine as a single node
+        // Extract primary element with browser context from keyElements or first event
+        let primaryElement = null;
+        if (stepData.keyElements && stepData.keyElements.length > 0) {
+            primaryElement = stepData.keyElements[0];
+        } else if (stepData.events && stepData.events.length > 0) {
+            // Find first event with element data
+            const eventWithElement = stepData.events.find(e => e.element && e.element.selector);
+            if (eventWithElement) {
+                primaryElement = eventWithElement.element;
+            }
+        }
+        
+        // Add step to process engine as a single node with full browser context
         const node = {
             id: stepData.id,
             type: 'step',
@@ -2884,10 +3014,19 @@ class ProcessCaptureApp {
             timestamp: stepData.startTime,
             duration: stepData.duration,
             eventCount: stepData.eventCount,
-            events: stepData.events,
-            primaryAction: stepData.primaryAction,
-            keyElements: stepData.keyElements,
-            patternType: stepData.patternType,
+            
+            // Critical: Store primary element for automation
+            element: primaryElement,
+            
+            // Critical: Store ALL events with full browser context in data field
+            data: {
+                events: stepData.events || [],  // Has selectors, XPath, IDs
+                subSteps: stepData.events ? this.detectSubSteps(stepData.events) : [],
+                primaryAction: stepData.primaryAction,
+                keyElements: stepData.keyElements,
+                patternType: stepData.patternType
+            },
+            
             mode: stepData.mode,
             additionalContext: stepData.additionalContext,
             previousId: previousNodeId  // Add connection to previous node
@@ -2933,6 +3072,56 @@ class ProcessCaptureApp {
         if (this.elements.stepDuration) {
             this.elements.stepDuration.textContent = `${data.duration}s`;
         }
+    }
+    
+    /**
+     * Detect sub-steps from events array (for browser context grouping)
+     */
+    detectSubSteps(events) {
+        if (!events || events.length === 0) return [];
+        
+        const subSteps = [];
+        let currentSubStep = null;
+        
+        events.forEach((event, index) => {
+            // Start new sub-step on significant actions
+            if (event.type === 'click' || event.type === 'navigation' || index === 0) {
+                if (currentSubStep) {
+                    subSteps.push(currentSubStep);
+                }
+                currentSubStep = {
+                    index: subSteps.length,
+                    type: event.type,
+                    description: this.getEventDescription(event),
+                    events: [event]
+                };
+            } else if (currentSubStep) {
+                // Add to current sub-step
+                currentSubStep.events.push(event);
+            }
+        });
+        
+        // Add final sub-step
+        if (currentSubStep) {
+            subSteps.push(currentSubStep);
+        }
+        
+        return subSteps;
+    }
+    
+    /**
+     * Get human-readable description for an event
+     */
+    getEventDescription(event) {
+        if (event.type === 'click') {
+            const text = event.element?.text || event.element?.selector || 'element';
+            return `Click ${text}`;
+        } else if (event.type === 'typed_text') {
+            return `Type "${event.text?.substring(0, 20)}..."`;
+        } else if (event.type === 'navigation') {
+            return `Navigate to ${event.url || 'page'}`;
+        }
+        return event.type;
     }
 }
 

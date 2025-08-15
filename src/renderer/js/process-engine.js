@@ -290,8 +290,23 @@ class ProcessEngine {
             
             // CRITICAL: Preserve the raw data including events array!
             // This contains the actual captured events from Mark Before
-            data: data.data || null
+            data: data.data || null,
+            
+            // ALSO preserve events at root level for compatibility
+            events: data.events || null,
+            
+            // Store complete raw input for debugging
+            rawData: data
         };
+        
+        // If this is a step node with events, preserve them
+        if (node.type === 'step' && data.events && data.events.length > 0) {
+            console.log('[ProcessEngine] Step node with', data.events.length, 'events - preserving all data');
+            node.events = data.events;
+            if (!node.data) node.data = {};
+            node.data.events = data.events;
+            node.data.rawCapture = data; // Keep everything
+        }
         
         // If this is a marked action with events, detect sub-steps
         if (node.type === 'marked-action' && node.data?.events?.length > 0) {
@@ -438,6 +453,25 @@ class ProcessEngine {
         const nodesArray = Array.from(this.process.nodes.values());
         console.log('[Export] Converted nodes array:', nodesArray);
         
+        // Enhanced export - include all captured data
+        const enhancedNodes = nodesArray.map(node => {
+            // Extract events from multiple possible locations
+            const events = node.events || node.data?.events || node.rawData?.events || [];
+            
+            console.log(`[Export] Node ${node.id}: ${events.length} events found`);
+            
+            return {
+                ...node,
+                events: events, // Ensure events are at root level
+                capturedData: {
+                    eventsCount: events.length,
+                    hasSelectors: events.some(e => e.element?.selector),
+                    hasBrowserContext: events.some(e => e.pageContext?.url),
+                    rawEvents: events // Full event data
+                }
+            };
+        });
+        
         const exportData = {
             process: {
                 id: this.process.id,
@@ -449,11 +483,12 @@ class ProcessEngine {
             },
             sessionState: this.process.sessionState,  // Include complete browser session
             sessionMetadata: this.process.sessionMetadata,  // Include session metadata
-            nodes: nodesArray,
+            nodes: enhancedNodes,
             edges: this.process.edges,
             statistics: {
-                totalNodes: nodesArray.length,
+                totalNodes: enhancedNodes.length,
                 totalEdges: this.process.edges.length,
+                totalEvents: enhancedNodes.reduce((sum, n) => sum + (n.events?.length || 0), 0),
                 hasAuthentication: !!this.process.sessionState,
                 exportedAt: new Date().toISOString()
             }
@@ -466,6 +501,8 @@ class ProcessEngine {
                 const jsonString = JSON.stringify(exportData, null, 2);
                 console.log('[Export] JSON string length:', jsonString.length);
                 return jsonString;
+            case 'raw-log':
+                return this.generateRawLogExport(exportData);
             case 'yaml':
                 return this.generateYAMLExport(exportData);
             case 'mermaid':
@@ -490,6 +527,135 @@ class ProcessEngine {
         }
     }
 
+    /**
+     * Generate raw log export with all captured data
+     */
+    generateRawLogExport(exportData) {
+        let log = '=== RAW CAPTURE LOG ===\n';
+        log += `Process: ${this.process.name}\n`;
+        log += `Captured: ${this.process.createdAt}\n`;
+        log += `Total Events: ${exportData.statistics.totalEvents}\n\n`;
+        
+        exportData.nodes.forEach((node, index) => {
+            log += `\n=== NODE ${index + 1}: ${node.title || node.id} ===\n`;
+            log += `Type: ${node.type}\n`;
+            log += `Description: ${node.description || 'N/A'}\n`;
+            log += `Duration: ${node.duration ? (node.duration / 1000).toFixed(1) + 's' : 'N/A'}\n`;
+            
+            const events = node.events || [];
+            if (events.length > 0) {
+                log += `\nCaptured Events (${events.length}):\n`;
+                log += '-'.repeat(50) + '\n';
+                
+                events.forEach((event, i) => {
+                    log += `\n[${i + 1}] ${event.type}`;
+                    if (event.timestamp) {
+                        log += ` @ ${new Date(event.timestamp).toLocaleTimeString()}`;
+                    }
+                    log += '\n';
+                    
+                    // Include browser context - check multiple locations for selectors
+                    if (event.element) {
+                        log += `  Element:\n`;
+                        
+                        // Check for selectors in different formats
+                        const selectors = event.element.selectors || event.element;
+                        
+                        // CSS Selector
+                        const cssSelector = selectors.css || selectors.selector || event.element.selector;
+                        if (cssSelector) {
+                            log += `    Selector: ${cssSelector}\n`;
+                        }
+                        
+                        // XPath
+                        const xpath = selectors.xpath || event.element.xpath;
+                        if (xpath) {
+                            log += `    XPath: ${xpath}\n`;
+                        }
+                        
+                        // ID
+                        const id = selectors.id || event.element.id;
+                        if (id) {
+                            log += `    ID: ${id}\n`;
+                        }
+                        
+                        // Class
+                        const className = selectors.className || event.element.className;
+                        if (className) {
+                            log += `    Class: ${className}\n`;
+                        }
+                        
+                        // Tag
+                        const tag = selectors.tagName || event.element.tagName || event.element.tag;
+                        if (tag) {
+                            log += `    Tag: <${tag}>\n`;
+                        }
+                        
+                        // Text content
+                        const text = selectors.text || event.element.text;
+                        if (text) {
+                            log += `    Text: "${text}"\n`;
+                        }
+                        
+                        // Additional attributes
+                        if (selectors.attributes && Object.keys(selectors.attributes).length > 0) {
+                            log += `    Attributes:\n`;
+                            for (const [key, value] of Object.entries(selectors.attributes)) {
+                                if (key !== 'class' && key !== 'id') { // Skip already shown
+                                    log += `      ${key}: "${value}"\n`;
+                                }
+                            }
+                        }
+                        
+                        // Element position if available
+                        if (event.element.position) {
+                            const pos = event.element.position;
+                            log += `    Position: (${pos.x}, ${pos.y}, ${pos.width}x${pos.height})\n`;
+                        }
+                    }
+                    
+                    if (event.pageContext) {
+                        log += `  Context:\n`;
+                        if (event.pageContext.url) log += `    URL: ${event.pageContext.url}\n`;
+                        if (event.pageContext.title) log += `    Title: ${event.pageContext.title}\n`;
+                    }
+                    
+                    if (event.text) {
+                        log += `  Typed: "${event.text}"\n`;
+                    }
+                    
+                    // Show position for clicks
+                    if (event.position) {
+                        log += `  Coordinates: (${event.position.x}, ${event.position.y})\n`;
+                    } else if (event.x !== undefined && event.y !== undefined) {
+                        log += `  Coordinates: (${event.x}, ${event.y})\n`;
+                    }
+                    
+                    // Show application context
+                    if (event.application) {
+                        log += `  Application: ${event.application}\n`;
+                    }
+                    if (event.window) {
+                        log += `  Window: ${event.window}\n`;
+                    }
+                });
+            } else {
+                log += '\n[No events captured]\n';
+            }
+            
+            log += '\n' + '='.repeat(60) + '\n';
+        });
+        
+        // Add session info if present
+        if (exportData.sessionState) {
+            log += '\n=== SESSION STATE ===\n';
+            log += 'Authentication data captured (cookies, localStorage)\n';
+            log += `Domain: ${exportData.sessionMetadata?.domain || 'unknown'}\n`;
+        }
+        
+        return log;
+    }
+    
     /**
      * Generate basic Mermaid diagram
      */
@@ -766,56 +932,89 @@ execute${this.toCamelCase(this.process.name)}().catch(console.error);
      * Get best selector for an element
      */
     getBestSelector(element) {
-        if (!element) return null;
+        if (!element) {
+            console.log('[Export] getBestSelector: No element provided');
+            return null;
+        }
         
         // Handle selector string directly (from browser context capture)
         if (typeof element === 'string') {
+            console.log('[Export] getBestSelector: Direct selector string:', element);
             return element;
         }
+        
+        // Log element structure for debugging
+        console.log('[Export] getBestSelector: Element structure:', {
+            hasSelectors: !!element.selectors,
+            hasSelector: !!element.selector,
+            hasId: !!element.id,
+            selectorsKeys: element.selectors ? Object.keys(element.selectors) : [],
+            elementKeys: Object.keys(element)
+        });
         
         // Priority: ID > data-testid > name > aria-label > CSS > text > XPath
         // Handle both old and new element formats
         if (element?.selectors?.id) {
+            console.log('[Export] Using ID selector:', element.selectors.id);
             return element.selectors.id;
         }
         if (element?.id) {
+            console.log('[Export] Using element ID:', `#${element.id}`);
             return `#${element.id}`;
         }
         
         // Check for data-testid (common in modern apps)
         if (element?.selectors?.attributes?.['data-testid']) {
-            return `[data-testid="${element.selectors.attributes['data-testid']}"]`;
+            const selector = `[data-testid="${element.selectors.attributes['data-testid']}"]`;
+            console.log('[Export] Using data-testid:', selector);
+            return selector;
         }
         
         if (element?.name) {
-            return `[name="${element.name}"]`;
+            const selector = `[name="${element.name}"]`;
+            console.log('[Export] Using name attribute:', selector);
+            return selector;
         }
         
         // Check for aria-label (good for accessibility)
         if (element?.selectors?.attributes?.['aria-label']) {
-            return `[aria-label="${element.selectors.attributes['aria-label']}"]`;
+            const selector = `[aria-label="${element.selectors.attributes['aria-label']}"]`;
+            console.log('[Export] Using aria-label:', selector);
+            return selector;
         }
         
         if (element?.selectors?.css) {
+            console.log('[Export] Using CSS selector:', element.selectors.css);
             return element.selectors.css;
         }
         if (element?.selector) {
+            console.log('[Export] Using selector field:', element.selector);
             return element.selector;
         }
         
         // Use text-based selector for buttons and links
-        if (element?.selectors?.text && element?.tagName) {
-            const tag = element.tagName.toLowerCase();
-            if (tag === 'button' || tag === 'a') {
-                return `text="${element.selectors.text}"`;
+        if (element?.selectors?.text) {
+            const tag = element?.tagName || element?.tag || element?.selectors?.tagName;
+            if (tag) {
+                const tagLower = tag.toLowerCase();
+                if (tagLower === 'button' || tagLower === 'a') {
+                    const selector = `text="${element.selectors.text}"`;
+                    console.log('[Export] Using text selector:', selector);
+                    return selector;
+                }
+                const selector = `${tagLower}:has-text("${element.selectors.text}")`;
+                console.log('[Export] Using has-text selector:', selector);
+                return selector;
             }
-            return `${tag}:has-text("${element.selectors.text}")`;
         }
         
         if (element?.selectors?.xpath) {
-            return `xpath=${element.selectors.xpath}`;
+            const selector = `xpath=${element.selectors.xpath}`;
+            console.log('[Export] Using XPath:', selector);
+            return selector;
         }
         
+        console.log('[Export] No selector found for element');
         return null;
     }
     
@@ -1091,17 +1290,78 @@ execute${this.toCamelCase(this.process.name)}().catch(console.error);
             code += `    // ${node.eventCount} actions captured\n`;
         }
         
-        if (node.patternType) {
-            code += `    // Pattern: ${node.patternType}\n`;
+        if (node.data?.patternType) {
+            code += `    // Pattern: ${node.data.patternType}\n`;
         }
         
         code += `\n`;
         
-        // Process all events in the step
-        if (node.events && node.events.length > 0) {
-            node.events.forEach(event => {
-                code += this.eventToPlaywrightCode(event);
+        // Process all events in the step - check both locations for backward compatibility
+        const events = node.data?.events || node.events || [];
+        
+        if (events.length > 0) {
+            console.log(`[Export] Processing ${events.length} events for step ${node.id}`);
+            
+            let lastInputElement = null;
+            let currentUrl = null;
+            
+            events.forEach((event, index) => {
+                // Track navigation
+                if (event.pageContext?.url && event.pageContext.url !== currentUrl) {
+                    currentUrl = event.pageContext.url;
+                    if (index === 0) {
+                        code += `    await page.goto('${currentUrl}');\n`;
+                    } else {
+                        code += `    // Navigated to: ${currentUrl}\n`;
+                    }
+                }
+                
+                // Generate code based on event type
+                if (event.type === 'click') {
+                    const selector = this.getBestSelector(event.element);
+                    if (selector) {
+                        code += `    await page.waitForSelector('${selector}', { state: 'visible' });\n`;
+                        code += `    await page.click('${selector}');\n`;
+                        
+                        // Track if this was an input field
+                        if (event.element?.tagName === 'INPUT' || event.element?.type === 'text') {
+                            lastInputElement = selector;
+                        }
+                    } else if (event.x && event.y) {
+                        code += `    // No selector available, using coordinates\n`;
+                        code += `    await page.mouse.click(${event.x}, ${event.y});\n`;
+                    }
+                    
+                    // Add element description if available
+                    if (event.element?.text) {
+                        code += `    // Clicked: "${event.element.text.substring(0, 50)}"\n`;
+                    }
+                    
+                } else if (event.type === 'typed_text' && event.text) {
+                    if (lastInputElement) {
+                        code += `    await page.fill('${lastInputElement}', '${event.text.replace(/'/g, "\\'")}')\n`;
+                        lastInputElement = null;
+                    } else {
+                        code += `    await page.keyboard.type('${event.text.replace(/'/g, "\\'")}');\n`;
+                    }
+                    
+                } else if (event.type === 'keystroke' || event.type === 'keydown') {
+                    const key = event.key || event.keyCode;
+                    if (key === 'Enter' || key === 13) {
+                        code += `    await page.keyboard.press('Enter');\n`;
+                    } else if (key === 'Tab' || key === 9) {
+                        code += `    await page.keyboard.press('Tab');\n`;
+                    } else if (typeof key === 'string') {
+                        code += `    await page.keyboard.press('${key}');\n`;
+                    }
+                }
             });
+        } else if (node.element) {
+            // Fallback to primary element if no events
+            const selector = this.getBestSelector(node.element);
+            if (selector) {
+                code += `    await page.click('${selector}');\n`;
+            }
         }
         
         code += `\n`;
