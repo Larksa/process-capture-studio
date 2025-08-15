@@ -71,8 +71,8 @@ class PythonBridge extends EventEmitter {
         const captureEvent = this.transformPythonEvent(event);
         
         // Add to capture service buffer if available
-        if (this.captureService) {
-            this.captureService.addToBuffer(captureEvent);
+        if (this.captureService && this.captureService.storeInGlobalBuffer) {
+            this.captureService.storeInGlobalBuffer(captureEvent);
         }
         
         // Emit for other listeners
