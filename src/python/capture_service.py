@@ -472,51 +472,69 @@ class ProcessCaptureService:
         cmd_type = command.get('type')
         
         if cmd_type == 'capture_paste_destination':
-            print("📋 Received request to capture paste destination")
-            await self.capture_paste_destination(command.get('timestamp'))
+            app_name = command.get('application', 'Unknown')
+            window = command.get('window', '')
+            print(f"📋 Received request to capture paste destination in {app_name}")
+            await self.capture_paste_destination(command.get('timestamp'), app_name, window)
     
-    async def capture_paste_destination(self, paste_timestamp):
-        """Capture Excel destination context when paste happens"""
+    async def capture_paste_destination(self, paste_timestamp, app_name, window_title):
+        """Capture paste destination context based on application type"""
+        # Application-specific handlers
+        handlers = {
+            'Excel': self._capture_excel_destination,
+            'Word': self._capture_word_destination,
+            'PowerPoint': self._capture_powerpoint_destination,
+            'Chrome': self._capture_browser_destination,
+            'Safari': self._capture_browser_destination,
+            'Firefox': self._capture_browser_destination,
+            'Edge': self._capture_browser_destination,
+        }
+        
+        # Find appropriate handler
+        handler = None
+        for app_key in handlers:
+            if app_key.lower() in app_name.lower():
+                handler = handlers[app_key]
+                break
+        
+        # Use generic handler if no specific one found
+        if not handler:
+            handler = self._capture_generic_destination
+        
+        # Call the handler
+        destination_context = await handler(app_name, window_title)
+        
+        # Create unified paste event
+        await self._create_unified_paste_event(paste_timestamp, destination_context)
+    
+    async def _capture_excel_destination(self, app_name, window_title):
+        """Capture Excel-specific destination context"""
+        destination = {
+            'application': app_name,
+            'window': window_title,
+            'type': 'spreadsheet'
+        }
+        
         # Get current Excel selection as destination
         if self.excel_capture.excel:
             # Force immediate capture of current selection
             self.excel_capture.capture_selection()
             
-            # Get last clipboard entry for source context
-            last_clipboard = self.clipboard_monitor.get_last_clipboard() if self.clipboard_monitor else None
-            
-            # Create enriched paste event
-            paste_event = {
-                'type': 'excel_paste',
-                'timestamp': datetime.now().isoformat(),
-                'paste_timestamp': paste_timestamp,
-                'source': None,
-                'destination': None
-            }
-            
-            # Add source context from clipboard
-            if last_clipboard and last_clipboard.get('source', {}).get('excel_selection'):
-                paste_event['source'] = {
-                    'workbook': last_clipboard['source']['excel_selection'].get('workbook'),
-                    'sheet': last_clipboard['source']['excel_selection'].get('sheet'),
-                    'address': last_clipboard['source']['excel_selection'].get('address'),
-                    'path': last_clipboard['source']['excel_selection'].get('path'),
-                    'content': last_clipboard.get('content_preview')
-                }
-            
-            # Get destination from current Excel state
             try:
                 if platform.system() == "Windows" and self.excel_capture.excel:
                     sheet = self.excel_capture.excel.ActiveSheet
                     workbook = self.excel_capture.excel.ActiveWorkbook
                     selection = self.excel_capture.excel.Selection
                     
-                    paste_event['destination'] = {
-                        'workbook': workbook.Name,
-                        'sheet': sheet.Name,
-                        'address': selection.Address,
+                    destination.update({
+                        'document': workbook.Name,
+                        'location': {
+                            'sheet': sheet.Name,
+                            'address': selection.Address,
+                            'type': 'cell_range'
+                        },
                         'path': workbook.FullName
-                    }
+                    })
                 elif platform.system() == "Darwin":
                     # macOS - use AppleScript
                     script = '''
@@ -533,23 +551,334 @@ class ProcessCaptureService:
                     result = as_script.run()
                     
                     if result and isinstance(result, list) and len(result) >= 4:
-                        paste_event['destination'] = {
-                            'address': result[0],
-                            'sheet': result[1],
-                            'workbook': result[2],
+                        destination.update({
+                            'document': result[2],
+                            'location': {
+                                'sheet': result[1],
+                                'address': result[0],
+                                'type': 'cell_range'
+                            },
                             'path': result[3]
-                        }
+                        })
             except Exception as e:
-                print(f"Error capturing paste destination: {e}")
+                print(f"Error capturing Excel destination: {e}")
+        
+        return destination
+    
+    async def _capture_word_destination(self, app_name, window_title):
+        """Capture Word-specific destination context"""
+        destination = {
+            'application': app_name,
+            'window': window_title,
+            'type': 'document',
+            'document': self._extract_document_name(window_title, 'Word')
+        }
             
-            # Send enriched paste event
-            if paste_event['source'] and paste_event['destination']:
-                paste_event['description'] = f"Pasted from {paste_event['source']['workbook']} to {paste_event['destination']['workbook']}"
-                print(f"📊 Excel paste: {paste_event['source']['address']} ({paste_event['source']['workbook']}) → {paste_event['destination']['address']} ({paste_event['destination']['workbook']})")
+        try:
+            if platform.system() == "Darwin":
+                # macOS - use AppleScript for Word
+                script = '''
+                tell application "Microsoft Word"
+                    try
+                        set docName to name of active document
+                        set docPath to path of active document
+                        set cursorPos to selection start of selection
+                        set pageNum to page number of cursorPos
+                        set paraNum to paragraph number of cursorPos
+                        return {docName, docPath, pageNum, paraNum}
+                    on error
+                        return missing value
+                    end try
+                end tell
+                '''
+                as_script = applescript.AppleScript(script)
+                result = as_script.run()
+                
+                if result and result != 'missing value' and isinstance(result, list):
+                    destination.update({
+                        'document': result[0] if len(result) > 0 else window_title,
+                        'location': {
+                            'page': result[2] if len(result) > 2 else 'Unknown',
+                            'paragraph': result[3] if len(result) > 3 else 'Unknown',
+                            'type': 'text_position'
+                        },
+                        'path': result[1] if len(result) > 1 else None
+                    })
+            elif platform.system() == "Windows":
+                # Windows COM automation for Word
+                try:
+                    import win32com.client
+                    word = win32com.client.GetObject(Class="Word.Application")
+                    if word and word.ActiveDocument:
+                        doc = word.ActiveDocument
+                        sel = word.Selection
+                        destination.update({
+                            'document': doc.Name,
+                            'location': {
+                                'page': sel.Information(3),  # wdActiveEndPageNumber
+                                'line': sel.Information(10),  # wdFirstCharacterLineNumber
+                                'type': 'text_position'
+                            },
+                            'path': doc.FullName
+                        })
+                except:
+                    pass
+        except Exception as e:
+            print(f"Error capturing Word destination: {e}")
+        
+        return destination
+    
+    async def _capture_powerpoint_destination(self, app_name, window_title):
+        """Capture PowerPoint-specific destination context"""
+        destination = {
+            'application': app_name,
+            'window': window_title,
+            'type': 'presentation',
+            'document': self._extract_document_name(window_title, 'PowerPoint')
+        }
+            
+        try:
+            if platform.system() == "Darwin":
+                # macOS - use AppleScript for PowerPoint
+                script = '''
+                tell application "Microsoft PowerPoint"
+                    try
+                        set presName to name of active presentation
+                        set slideNum to slide index of slide of view of active window
+                        return {presName, slideNum}
+                    on error
+                        return missing value
+                    end try
+                end tell
+                '''
+                as_script = applescript.AppleScript(script)
+                result = as_script.run()
+                
+                if result and result != 'missing value' and isinstance(result, list):
+                    destination.update({
+                        'document': result[0] if len(result) > 0 else window_title,
+                        'location': {
+                            'slide': result[1] if len(result) > 1 else 'Unknown',
+                            'type': 'slide'
+                        }
+                    })
+            elif platform.system() == "Windows":
+                # Windows COM automation for PowerPoint
+                try:
+                    import win32com.client
+                    ppt = win32com.client.GetObject(Class="PowerPoint.Application")
+                    if ppt and ppt.ActivePresentation:
+                        pres = ppt.ActivePresentation
+                        window = ppt.ActiveWindow
+                        destination.update({
+                            'document': pres.Name,
+                            'location': {
+                                'slide': window.Selection.SlideRange.SlideNumber if window.Selection.Type == 2 else 'Unknown',
+                                'type': 'slide'
+                            },
+                            'path': pres.FullName
+                        })
+                except:
+                    pass
+        except Exception as e:
+            print(f"Error capturing PowerPoint destination: {e}")
+        
+        return destination
+    
+    async def _capture_browser_destination(self, app_name, window_title):
+        """Capture browser/web app destination context"""
+        destination = {
+            'application': app_name,
+            'window': window_title,
+            'type': 'web_application'
+        }
+        
+        # Extract URL and page title from window title
+        # Common patterns: "Page Title - Domain - Browser"
+        parts = window_title.split(' - ') if window_title else []
+        
+        if len(parts) >= 2:
+            destination['page_title'] = parts[0]
+            destination['domain'] = parts[-2] if len(parts) > 2 else parts[1]
+            
+            # Detect specific web applications
+            web_apps = {
+                'salesforce': 'Salesforce',
+                'activecampaign': 'ActiveCampaign',
+                'wordpress': 'WordPress',
+                'gmail': 'Gmail',
+                'docs.google': 'Google Docs',
+                'sheets.google': 'Google Sheets',
+                'notion': 'Notion',
+                'airtable': 'Airtable',
+                'hubspot': 'HubSpot',
+                'slack': 'Slack',
+                'trello': 'Trello',
+                'jira': 'Jira'
+            }
+            
+            for key, app in web_apps.items():
+                if key in window_title.lower():
+                    destination['web_app'] = app
+                    destination['type'] = 'web_application'
+                    break
+        
+        # For now, we can't get the exact form field without browser extension
+        # But we can infer from the page title
+        destination['location'] = {
+            'page': destination.get('page_title', 'Unknown'),
+            'type': 'web_form'
+        }
+        
+        return destination
+    
+    async def _capture_generic_destination(self, app_name, window_title):
+        """Generic fallback for unknown applications"""
+        return {
+            'application': app_name,
+            'window': window_title,
+            'type': 'unknown',
+            'document': self._extract_document_name(window_title, app_name),
+            'location': {
+                'type': 'unknown',
+                'timestamp': datetime.now().isoformat()
+            }
+        }
+    
+    def _extract_document_name(self, window_title, app_name):
+        """Extract document name from window title"""
+        if not window_title:
+            return 'Untitled'
+        
+        # Common patterns to remove
+        suffixes = [f' - {app_name}', f' — {app_name}', f' – {app_name}', 
+                   ' - Microsoft', ' - Google', ' - Adobe']
+        
+        for suffix in suffixes:
+            if suffix in window_title:
+                return window_title.split(suffix)[0]
+        
+        return window_title
+    
+    async def _create_unified_paste_event(self, paste_timestamp, destination_context):
+        """Create a unified paste event with source and destination"""
+        # Get last clipboard entry for source context
+        last_clipboard = self.clipboard_monitor.get_last_clipboard() if self.clipboard_monitor else None
+        
+        # Create unified paste event
+        paste_event = {
+            'type': 'cross_app_paste',
+            'timestamp': datetime.now().isoformat(),
+            'paste_timestamp': paste_timestamp,
+            'source': None,
+            'destination': destination_context,
+            'data_flow': {}
+        }
+        
+        # Add source context from clipboard
+        if last_clipboard:
+            source = {
+                'application': last_clipboard.get('source', {}).get('application', 'Unknown'),
+                'window': last_clipboard.get('source', {}).get('window_title', ''),
+                'content': last_clipboard.get('content_preview', ''),
+                'data_type': last_clipboard.get('data_type', 'text')
+            }
+            
+            # Add Excel-specific source info if available
+            if last_clipboard.get('source', {}).get('excel_selection'):
+                excel_info = last_clipboard['source']['excel_selection']
+                source['document'] = excel_info.get('workbook')
+                source['location'] = {
+                    'sheet': excel_info.get('sheet'),
+                    'address': excel_info.get('address'),
+                    'type': 'cell_range'
+                }
+                source['path'] = excel_info.get('path')
+                source['type'] = 'spreadsheet'
             else:
-                paste_event['description'] = "Paste operation (incomplete context)"
+                # Generic source
+                source['document'] = last_clipboard.get('source', {}).get('document', 'Unknown')
+                source['type'] = self._infer_app_type(source['application'])
             
-            await self.send_to_electron(paste_event)
+            paste_event['source'] = source
+        
+        # Create data flow description
+        if paste_event['source'] and paste_event['destination']:
+            src_desc = self._format_location(paste_event['source'])
+            dst_desc = self._format_location(paste_event['destination'])
+            
+            paste_event['data_flow'] = {
+                'from': src_desc,
+                'to': dst_desc,
+                'transformation': self._detect_transformation(
+                    paste_event['source']['type'],
+                    paste_event['destination']['type']
+                )
+            }
+            
+            paste_event['description'] = f"Pasted from {src_desc} to {dst_desc}"
+            print(f"📋 Cross-app paste: {src_desc} → {dst_desc}")
+        else:
+            paste_event['description'] = "Paste operation (incomplete context)"
+        
+        # Send unified paste event
+        await self.send_to_electron(paste_event)
+    
+    def _infer_app_type(self, app_name):
+        """Infer application type from name"""
+        app_lower = app_name.lower() if app_name else ''
+        
+        if 'excel' in app_lower or 'sheets' in app_lower:
+            return 'spreadsheet'
+        elif 'word' in app_lower or 'docs' in app_lower:
+            return 'document'
+        elif 'powerpoint' in app_lower or 'slides' in app_lower:
+            return 'presentation'
+        elif any(browser in app_lower for browser in ['chrome', 'safari', 'firefox', 'edge']):
+            return 'web_application'
+        elif 'code' in app_lower or 'sublime' in app_lower or 'atom' in app_lower:
+            return 'code_editor'
+        else:
+            return 'unknown'
+    
+    def _format_location(self, context):
+        """Format location for display"""
+        if not context:
+            return 'Unknown'
+        
+        app = context.get('application', 'Unknown')
+        doc = context.get('document', '')
+        
+        # Format based on type
+        if context.get('type') == 'spreadsheet' and context.get('location'):
+            loc = context['location']
+            return f"{doc or app}!{loc.get('sheet', '')}!{loc.get('address', '')}"
+        elif context.get('type') == 'document' and context.get('location'):
+            loc = context['location']
+            return f"{doc or app} (Page {loc.get('page', '?')}, Para {loc.get('paragraph', '?')})"
+        elif context.get('type') == 'presentation' and context.get('location'):
+            loc = context['location']
+            return f"{doc or app} (Slide {loc.get('slide', '?')})"
+        elif context.get('type') == 'web_application':
+            web_app = context.get('web_app', context.get('domain', app))
+            return f"{web_app}: {context.get('page_title', 'Unknown page')}"
+        else:
+            return doc or app
+    
+    def _detect_transformation(self, source_type, dest_type):
+        """Detect data transformation between applications"""
+        transformations = {
+            ('spreadsheet', 'document'): 'table_to_text',
+            ('spreadsheet', 'presentation'): 'data_to_slide',
+            ('spreadsheet', 'web_application'): 'data_to_form',
+            ('document', 'spreadsheet'): 'text_to_cells',
+            ('document', 'presentation'): 'text_to_slide',
+            ('document', 'web_application'): 'text_to_form',
+            ('web_application', 'spreadsheet'): 'web_to_data',
+            ('web_application', 'document'): 'web_to_text'
+        }
+        
+        return transformations.get((source_type, dest_type), 'direct_paste')
     
     def process_events(self):
         """Process queued events and send to Electron"""

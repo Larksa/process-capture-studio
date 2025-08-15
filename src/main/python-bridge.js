@@ -182,7 +182,7 @@ class PythonBridge extends EventEmitter {
                 };
             
             case 'excel_paste':
-                // Enriched paste event with source and destination
+                // Legacy Excel-specific paste event
                 return {
                     ...baseEvent,
                     type: 'excel-paste',
@@ -194,6 +194,23 @@ class PythonBridge extends EventEmitter {
                         from: pythonEvent.source ? `${pythonEvent.source.workbook}!${pythonEvent.source.sheet}!${pythonEvent.source.address}` : 'Unknown',
                         to: pythonEvent.destination ? `${pythonEvent.destination.workbook}!${pythonEvent.destination.sheet}!${pythonEvent.destination.address}` : 'Unknown',
                         content: pythonEvent.source?.content
+                    }
+                };
+            
+            case 'cross_app_paste':
+                // Universal cross-application paste event
+                return {
+                    ...baseEvent,
+                    type: 'cross-app-paste',
+                    source: pythonEvent.source,
+                    destination: pythonEvent.destination,
+                    pasteTimestamp: pythonEvent.paste_timestamp,
+                    dataFlow: pythonEvent.data_flow,
+                    description: pythonEvent.description,
+                    metadata: {
+                        sourceType: pythonEvent.source?.type,
+                        destType: pythonEvent.destination?.type,
+                        transformation: pythonEvent.data_flow?.transformation
                     }
                 };
             

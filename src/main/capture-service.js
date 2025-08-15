@@ -373,19 +373,21 @@ class CaptureService extends EventEmitter {
         if (isImportant) {
             activity.pattern = this.detectPattern(key);
             
-            // Special handling for paste pattern to capture Excel destination
-            if (activity.pattern === 'paste' && context.application?.includes('Excel')) {
-                console.log('📋 Paste detected in Excel - requesting destination context');
+            // Universal paste pattern handling for all applications
+            if (activity.pattern === 'paste') {
+                console.log(`📋 Paste detected in ${context.application} - requesting destination context`);
                 
-                // Request Excel context from Python service
+                // Request destination context from Python service
                 if (this.pythonBridge && this.pythonBridge.sendToPython) {
                     this.pythonBridge.sendToPython({
                         type: 'capture_paste_destination',
-                        timestamp: activity.timestamp
+                        timestamp: activity.timestamp,
+                        application: context.application,
+                        window: context.window
                     });
                     
-                    // Mark that we're waiting for Excel destination
-                    activity.waitingForExcelDestination = true;
+                    // Mark that we're waiting for destination context
+                    activity.waitingForDestination = true;
                 }
             }
         }
