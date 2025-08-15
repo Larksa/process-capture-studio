@@ -4,6 +4,29 @@
 
 Transform how you document and automate business processes. Watch your workflow build visually as you work, capturing not just what you do, but why you do it - ready for instant automation.
 
+## 🚀 Quick Start for Colleagues
+
+```bash
+# Clone the repository
+git clone https://github.com/andrewlarkey/process-capture-studio.git
+cd process-capture-studio
+
+# Install dependencies and rebuild native modules
+npm install && npm run rebuild
+
+# Start the application
+npm start
+
+# Optional: Start with modern UI
+npm start:modern
+```
+
+**Prerequisites:**
+- Node.js 16+ and npm 8+
+- Python 3.8+ (for advanced capture features)
+- macOS: Grant accessibility permissions when prompted
+- Windows: May need to run as Administrator
+
 ![Version](https://img.shields.io/badge/version-1.0.0-blue)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Mac%20%7C%20Linux-green)
 ![License](https://img.shields.io/badge/license-MIT-orange)

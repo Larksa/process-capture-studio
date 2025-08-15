@@ -6,6 +6,42 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Process Capture Studio is an Electron app that captures user workflows WITH context and converts them to automation code. Key differentiator: captures WHY users do things, not just WHAT they do, and captures actual data values for true repeatability.
 
+## Development Commands
+
+```bash
+# Setup (CRITICAL if uiohook-napi fails)
+npm install && npm run rebuild
+
+# Run Application
+npm start                # Classic UI (stable)
+npm start:modern         # Modern terminal UI (experimental)
+npm run dev              # Development mode with auto-reload
+
+# Python Service (run in separate terminal)
+cd src/python
+./start_capture.sh       # Starts file, clipboard, Excel monitoring
+
+# Testing
+npm test                 # All tests using Jest
+npm test:watch           # Watch mode for TDD
+npm test:coverage        # Generate coverage report
+npm test -- test/unit/mark-before-handler.test.js  # Single test file
+npm test:e2e            # Playwright end-to-end tests
+python3 test_excel_capture.py  # Test Excel capture
+
+# Build & Distribution
+npm run build           # Current platform
+npm run build:mac       # macOS .dmg (x64 + arm64)
+npm run build:win       # Windows .exe + portable
+npm run build:linux     # Linux AppImage + deb
+npm run build:all       # All platforms
+npm run dist            # Build without publishing
+
+# Maintenance
+npm run clean           # Remove dist, builds, node_modules
+npm run rebuild         # Rebuild native dependencies (uiohook-napi)
+```
+
 ## Critical Architecture: Four-Process Model with Python Service
 
 The app uses FOUR separate processes for complete capture:
@@ -30,32 +66,33 @@ Python Events → WebSocket → Python Bridge → Global Event Buffer
 
 The **Global Event Buffer** in `capture-service.js` is the single source of truth containing all captured events in chronological order.
 
-## Development Commands
+## Key Files & Their Responsibilities
 
-```bash
-# Setup (CRITICAL if uiohook-napi fails)
-npm install && npm run rebuild
+### Main Process (`src/main/`)
+- `main.js` - Electron app lifecycle, window management, IPC coordinator
+- `capture-service.js` - Global event buffer, capture orchestration
+- `browser-context-worker.js` - Forked process for Playwright CDP operations
+- `browser-context-service.js` - Browser context enrichment, session management
+- `python-bridge.js` - WebSocket server for Python service communication
+- `mark-before-handler.js` - Intent capture (Cmd+Shift+M) handling
+- `step-boundary-handler.js` - Groups events into logical steps
+- `window-manager.js` - Multi-window management, positioning
+- `preload.js` - Secure bridge between renderer and main process
 
-# Electron App
-npm start                # Classic UI (stable)
-npm start:modern         # Modern terminal UI (experimental)
-npm run dev              # Development mode with auto-reload
+### Renderer Process (`src/renderer/`)
+- `js/app.js` - Classic UI main application logic
+- `js/modern-app.js` - Modern terminal-style UI (experimental)
+- `js/process-engine.js` - Export generation (Playwright, Python, JSON)
+- `js/canvas-builder.js` - Visual process map rendering
+- `js/activity-tracker.js` - Activity panel updates
+- `js/chat-guide.js` - Guide panel interactions
+- `js/workflow-analyzer.js` - Pattern detection, loop recognition
 
-# Python Service (run in separate terminal)
-cd src/python
-./start_capture.sh       # Starts file, clipboard, Excel monitoring
-
-# Testing
-npm test                 # All tests
-npm test -- test/unit/mark-before-handler.test.js  # Single test
-python3 test_excel_capture.py  # Test Excel capture
-
-# Build
-npm run build           # Current platform
-npm run build:mac       # macOS .dmg
-npm run build:win       # Windows .exe
-npm run build:linux     # Linux AppImage
-```
+### Python Service (`src/python/`)
+- `capture_service.py` - Main Python service, coordinates monitors
+- `clipboard_monitor.py` - Cross-platform clipboard monitoring
+- `start_capture.sh` - Shell script to start Python service
+- `requirements.txt` - Python dependencies
 
 ## Core Capture Capabilities
 
@@ -70,7 +107,7 @@ npm run build:linux     # Linux AppImage
 - Application context (active window)
 - Coordinates and timing
 
-### 3. Data Capture (via Python Service) - NEW
+### 3. Data Capture (via Python Service)
 - **Clipboard monitoring**: Captures actual content with source
 - **Excel integration**: Cell values, formulas, addresses (A1:B1)
 - **File operations**: Create, move, delete with full paths
@@ -113,36 +150,6 @@ pythonBridge.start(captureService);
 // Events flow: Python → WebSocket → Main → Global Buffer
 ```
 
-### Data Structure Evolution
-```javascript
-// Level 1: Basic click
-{ type: 'click', x: 100, y: 200 }
-
-// Level 2: With browser context
-{
-  type: 'click',
-  element: { 
-    selectors: { css: '#submit', xpath: '//button[@id="submit"]' },
-    attributes: { name: 'submitBtn', type: 'submit' }
-  },
-  pageContext: { url: 'example.com', title: 'Form' }
-}
-
-// Level 3: With clipboard data
-{
-  type: 'clipboard_copy',
-  content: 'John Smith',
-  source: { 
-    application: 'Microsoft Excel',
-    excel_selection: { 
-      address: '$A$1:$B$1',
-      sheet: 'Sheet1',
-      workbook: 'data.xlsx'
-    }
-  }
-}
-```
-
 ### Self-Activity Filtering
 ```javascript
 // CRITICAL: Filter out Process Capture Studio's own events
@@ -150,59 +157,6 @@ const isOwnProcess = activeApp?.name?.includes('Process Capture Studio') ||
                     activeApp?.owner?.name?.includes('Electron');
 if (isOwnProcess) return; // Skip capture
 ```
-
-## Export System
-
-ProcessEngine generates different formats based on captured data:
-- **Playwright/Puppeteer** → Web with DOM selectors + embedded session state (cookies, localStorage)
-- **Python/pyautogui** → Desktop apps, file operations
-- **Raw Log** → Complete capture with all context (debugging)
-- **JSON** → Structured data with Excel values, clipboard content, session state
-- **With Data Extraction** → Reads from source files (Excel, Word)
-
-### Session State in Exports
-```javascript
-// Exports include authentication state
-{
-  sessionState: {
-    cookies: [...],      // All cookies from captured domains
-    localStorage: [...], // Site storage
-    sessionStorage: [...] // Temporary storage
-  },
-  metadata: {
-    capturedAt: "2024-01-15T10:30:00Z",
-    hasAuthentication: true,
-    domains: ["example.com", "api.example.com"]
-  }
-}
-```
-
-## Common Issues & Solutions
-
-### uiohook-napi Build Failure
-```bash
-npm run rebuild  # MUST run after npm install
-```
-
-### macOS Permissions
-- System Preferences → Security & Privacy → Accessibility
-- Add BOTH Terminal/VS Code AND Electron app
-- Python service needs folder access permissions
-
-### Python Service Not Capturing
-1. Check if running: `ps aux | grep capture_service`
-2. Install dependencies: `pip install -r requirements.txt`
-3. macOS specific: `pip install pyobjc-core py-applescript`
-
-### Browser Context Missing
-- Check worker process: `ps aux | grep browser-context-worker`
-- Verify Step Boundary Handler connected to global buffer
-- Check terminal for "📌 Storing enriched event" messages
-
-### Excel Values Not Captured
-- Excel must be running before Python service starts
-- On macOS: Grant automation permissions for Terminal
-- Check for "📊 Excel: Selected" messages in Python terminal
 
 ## IPC Event Flow
 
@@ -216,12 +170,62 @@ Critical channels:
 - `session:capture/load` → Session management
 - `step:start/end` → Step boundary grouping
 
+## Export System
+
+ProcessEngine generates different formats based on captured data:
+- **Playwright/Puppeteer** → Web with DOM selectors + embedded session state
+- **Python/pyautogui** → Desktop apps, file operations
+- **Raw Log** → Complete capture with all context (debugging)
+- **JSON** → Structured data with Excel values, clipboard content, session state
+
+## Common Issues & Solutions
+
+### uiohook-napi Build Failure
+```bash
+npm run rebuild  # MUST run after npm install
+# If still failing:
+npm install -g node-gyp
+npm run rebuild
+```
+
+### macOS Permissions
+- System Preferences → Security & Privacy → Accessibility
+- Add BOTH Terminal/VS Code AND Electron app
+- Python service needs folder access permissions
+
+### Python Service Not Capturing
+1. Check if running: `ps aux | grep capture_service`
+2. Install dependencies: `pip install -r src/python/requirements.txt`
+3. macOS specific: `pip install pyobjc-core py-applescript`
+4. Check WebSocket connection on port 9876
+
+### Browser Context Missing
+- Check worker process: `ps aux | grep browser-context-worker`
+- Verify Step Boundary Handler connected to global buffer
+- Check terminal for "📌 Storing enriched event" messages
+
+### Excel Values Not Captured
+- Excel must be running before Python service starts
+- On macOS: Grant automation permissions for Terminal
+- Check for "📊 Excel: Selected" messages in Python terminal
+
 ## Testing Approach
 
 ```javascript
-// Jest with Electron mocking
-// test/mocks/electron.js provides fake Electron APIs
-// Run single test: npm test -- path/to/test.js
+// Jest configuration in jest.config.js
+// Electron APIs mocked in test/mocks/electron.js
+
+// Run tests
+npm test                    // All tests
+npm test -- --watch        // Watch mode
+npm test -- path/to/test   // Single test file
+npm test:coverage          // Coverage report
+
+// Test structure
+test/
+├── unit/                  // Unit tests
+├── integration/           // Integration tests
+└── mocks/                 // Mock implementations
 ```
 
 ## Platform-Specific Notes
@@ -230,15 +234,18 @@ Critical channels:
 - Accessibility + Screen Recording permissions required
 - AppleScript for Excel integration
 - Quartz for window management
+- May need to grant automation permissions for Terminal
 
 ### Windows
 - May need Administrator for some apps
 - pywin32 for Excel COM automation
 - Windows Defender may flag uiohook-napi
+- Use portable build for no-install distribution
 
 ### Linux
-- User must be in `input` group
+- User must be in `input` group: `sudo usermod -a -G input $USER`
 - Limited Excel support (LibreOffice only)
+- X11 or Wayland considerations for screen capture
 
 ## Security Considerations
 
@@ -251,3 +258,21 @@ Critical channels:
 
 ### Session Security Warning
 Session files allow bypassing login on replay. Store exports securely and never commit session state to version control.
+
+## Build Configuration
+
+The app uses electron-builder with the following output structure:
+```
+builds/
+├── mac/
+│   ├── ProcessCaptureStudio.dmg (universal binary)
+│   └── ProcessCaptureStudio.zip
+├── win/
+│   ├── ProcessCaptureStudio-Setup.exe (installer)
+│   └── ProcessCaptureStudio-Portable.exe
+└── linux/
+    ├── ProcessCaptureStudio.AppImage
+    └── ProcessCaptureStudio.deb
+```
+
+Build configuration is in `package.json` under the `build` key.
