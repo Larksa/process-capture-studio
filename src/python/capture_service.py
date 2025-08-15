@@ -484,10 +484,17 @@ class ProcessCaptureService:
             'Excel': self._capture_excel_destination,
             'Word': self._capture_word_destination,
             'PowerPoint': self._capture_powerpoint_destination,
+            # All browsers use the same handler
             'Chrome': self._capture_browser_destination,
             'Safari': self._capture_browser_destination,
             'Firefox': self._capture_browser_destination,
             'Edge': self._capture_browser_destination,
+            'Opera': self._capture_browser_destination,
+            'Brave': self._capture_browser_destination,
+            'Arc': self._capture_browser_destination,
+            'Vivaldi': self._capture_browser_destination,
+            'Tor Browser': self._capture_browser_destination,
+            'DuckDuckGo': self._capture_browser_destination,
         }
         
         # Find appropriate handler

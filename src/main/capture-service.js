@@ -557,7 +557,8 @@ class CaptureService extends EventEmitter {
      */
     isBrowser(appName) {
         if (!appName) return false;
-        const browsers = ['Chrome', 'Chromium', 'Firefox', 'Safari', 'Edge', 'Opera', 'Brave'];
+        const browsers = ['Chrome', 'Chromium', 'Firefox', 'Safari', 'Edge', 
+                         'Opera', 'Brave', 'Arc', 'Vivaldi', 'Tor', 'DuckDuckGo'];
         return browsers.some(browser => appName.includes(browser));
     }
 
