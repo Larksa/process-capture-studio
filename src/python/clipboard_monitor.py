@@ -103,6 +103,11 @@ class ClipboardMonitor:
             'lines': content.count('\n') + 1 if '\n' in content else 1
         }
         
+        # Add Excel selection details if available
+        if source_context.get('excel_selection'):
+            event['excel_cells'] = source_context['excel_selection']
+            print(f"📊 Excel cells: {source_context['excel_selection']['address']} from {source_context['excel_selection']['workbook']}")
+        
         # Add to history
         self.clipboard_history.append(event)
         if len(self.clipboard_history) > self.max_history:
@@ -135,7 +140,8 @@ class ClipboardMonitor:
         context = {
             'application': 'Unknown',
             'window_title': 'Unknown',
-            'document': None
+            'document': None,
+            'excel_selection': None
         }
         
         if applescript:
@@ -153,22 +159,65 @@ class ClipboardMonitor:
                     return {frontApp, windowTitle}
                 end tell
                 '''
-                result = applescript.run(script)
-                if result.out:
-                    parts = result.out.split(', ')
-                    if len(parts) >= 2:
-                        context['application'] = parts[0]
-                        context['window_title'] = parts[1]
+                as_script = applescript.AppleScript(script)
+                result = as_script.run()
+                if result:
+                    # AppleScript returns a list
+                    if isinstance(result, list) and len(result) >= 2:
+                        context['application'] = result[0]
+                        context['window_title'] = result[1]
+                    elif isinstance(result, str):
+                        parts = result.split(', ')
+                        if len(parts) >= 2:
+                            context['application'] = parts[0]
+                            context['window_title'] = parts[1]
+                    
+                    # Extract document name from window title
+                    context['document'] = self._extract_document_name(
+                        context['window_title'], 
+                        context['application']
+                    )
+                    
+                    # If Excel, get selection details
+                    if 'Excel' in context['application']:
+                        context['excel_selection'] = self._get_excel_selection()
                         
-                        # Extract document name from window title
-                        context['document'] = self._extract_document_name(
-                            context['window_title'], 
-                            context['application']
-                        )
             except Exception as e:
                 print(f"Error getting macOS context: {e}")
                 
         return context
+    
+    def _get_excel_selection(self) -> Optional[Dict[str, Any]]:
+        """Get current Excel selection details"""
+        try:
+            script = '''
+            tell application "Microsoft Excel"
+                try
+                    set sel to selection
+                    set addr to get address of sel
+                    set sheetName to name of active sheet
+                    set wbName to name of active workbook
+                    set wbPath to full name of active workbook
+                    return {addr, sheetName, wbName, wbPath}
+                on error
+                    return missing value
+                end try
+            end tell
+            '''
+            as_script = applescript.AppleScript(script)
+            result = as_script.run()
+            
+            if result and result != 'missing value':
+                if isinstance(result, list) and len(result) >= 3:
+                    return {
+                        'address': result[0],
+                        'sheet': result[1],
+                        'workbook': result[2],
+                        'path': result[3] if len(result) > 3 else None
+                    }
+        except Exception as e:
+            print(f"Could not get Excel selection: {e}")
+        return None
     
     def _get_windows_context(self) -> Dict[str, Any]:
         """Get Windows application context"""

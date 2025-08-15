@@ -148,8 +148,9 @@ class ExcelCapture:
             elif platform.system() == "Darwin":
                 # macOS - use AppleScript
                 try:
-                    result = applescript.run('tell application "Microsoft Excel" to get name')
-                    if result.code == 0:
+                    script = applescript.AppleScript('tell application "Microsoft Excel" to get name')
+                    result = script.run()
+                    if result:
                         self.excel = True  # Flag for macOS
                         return True
                 except:
@@ -261,10 +262,18 @@ class ExcelCapture:
                 return {addr, sheetName, wbName, val}
             end tell
             '''
-            result = applescript.run(script)
+            as_script = applescript.AppleScript(script)
+            result = as_script.run()
             
-            if result.code == 0 and result.out:
-                parts = result.out.split(', ')
+            if result:
+                # Parse result - it could be a list or string
+                if isinstance(result, list) and len(result) >= 4:
+                    parts = result
+                elif isinstance(result, str):
+                    parts = result.split(', ')
+                else:
+                    return
+                    
                 if len(parts) >= 4:
                     address = parts[0]
                     
