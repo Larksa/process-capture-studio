@@ -521,6 +521,8 @@ class ProcessEngine {
                 return this.generateMarkdown();
             case 'plaintext':
                 return this.generatePlainText();
+            case 'json-replay':
+                return this.generateJSONReplayStrategy(exportData);
             default:
                 console.log('[Export] Returning raw export data');
                 return JSON.stringify(exportData, null, 2);
@@ -662,6 +664,307 @@ class ProcessEngine {
         }
         
         return log;
+    }
+    
+    /**
+     * Generate JSON with replay strategies for external automation tools
+     */
+    generateJSONReplayStrategy(exportData) {
+        console.log('[Export] Generating JSON Replay Strategy format');
+        
+        // Process each node to add replay strategies
+        const enhancedNodes = exportData.nodes.map(node => {
+            const processedNode = { ...node };
+            
+            // Process events to add replay strategies
+            if (node.events && node.events.length > 0) {
+                processedNode.events = node.events.map(event => this.addReplayStrategy(event));
+            }
+            
+            return processedNode;
+        });
+        
+        // Build the enhanced export structure
+        const replayExport = {
+            metadata: {
+                format: 'json-replay-strategy',
+                version: '1.0.0',
+                generated: new Date().toISOString(),
+                generator: 'Process Capture Studio',
+                ...exportData.process.metadata
+            },
+            
+            // Automation hints for the replay tool
+            automation_hints: {
+                prefer_selectors: true,
+                applications_used: this.detectApplicationsUsed(exportData.nodes),
+                has_browser_events: exportData.nodes.some(n => 
+                    n.events?.some(e => e.pageContext || e.element?.selectors)
+                ),
+                has_desktop_events: exportData.nodes.some(n => 
+                    n.events?.some(e => !e.pageContext && e.position)
+                ),
+                coordinate_reliability: this.calculateCoordinateReliability(exportData.nodes),
+                session_available: !!exportData.sessionState,
+                monitor_info: {
+                    // Add monitor information if available
+                    count: 1, // Default, could be enhanced
+                    primary_resolution: { width: 1920, height: 1080 } // Default, could be detected
+                }
+            },
+            
+            // Process information
+            process: exportData.process,
+            
+            // Session state for authenticated replay
+            sessionState: exportData.sessionState,
+            sessionMetadata: exportData.sessionMetadata,
+            
+            // Enhanced nodes with replay strategies
+            nodes: enhancedNodes,
+            edges: exportData.edges,
+            
+            // Statistics
+            statistics: {
+                ...exportData.statistics,
+                replay_strategies: {
+                    selector_based: enhancedNodes.reduce((sum, n) => 
+                        sum + (n.events?.filter(e => e.replay_strategies?.primary?.method === 'selector').length || 0), 0
+                    ),
+                    coordinate_based: enhancedNodes.reduce((sum, n) => 
+                        sum + (n.events?.filter(e => e.replay_strategies?.primary?.method === 'coordinate').length || 0), 0
+                    ),
+                    api_based: enhancedNodes.reduce((sum, n) => 
+                        sum + (n.events?.filter(e => e.replay_strategies?.primary?.method === 'com_automation').length || 0), 0
+                    )
+                }
+            }
+        };
+        
+        return JSON.stringify(replayExport, null, 2);
+    }
+    
+    /**
+     * Add replay strategy to an event
+     */
+    addReplayStrategy(event) {
+        const enhanced = { ...event };
+        
+        // Initialize replay strategies
+        enhanced.replay_strategies = {
+            primary: null,
+            secondary: null,
+            fallback: null
+        };
+        
+        // Handle browser events with selectors
+        if (event.element?.selectors || event.pageContext) {
+            const selectors = event.element?.selectors || {};
+            
+            // Primary: Use best selector available
+            if (selectors.id) {
+                enhanced.replay_strategies.primary = {
+                    method: 'selector',
+                    type: 'id',
+                    value: `#${selectors.id}`,
+                    confidence: 0.95
+                };
+            } else if (selectors.css) {
+                enhanced.replay_strategies.primary = {
+                    method: 'selector',
+                    type: 'css',
+                    value: selectors.css,
+                    confidence: 0.85
+                };
+            } else if (selectors.xpath) {
+                enhanced.replay_strategies.primary = {
+                    method: 'selector',
+                    type: 'xpath',
+                    value: selectors.xpath,
+                    confidence: 0.80
+                };
+            }
+            
+            // Secondary: Text-based selector if available
+            if (selectors.text) {
+                enhanced.replay_strategies.secondary = {
+                    method: 'text_match',
+                    value: selectors.text,
+                    confidence: 0.70
+                };
+            }
+            
+            // Fallback: Coordinates
+            if (event.position || (event.x !== undefined && event.y !== undefined)) {
+                enhanced.replay_strategies.fallback = {
+                    method: 'coordinate',
+                    value: {
+                        x: event.position?.x || event.x,
+                        y: event.position?.y || event.y
+                    },
+                    confidence: 0.30,
+                    relative_to: 'screen'
+                };
+            }
+            
+        // Handle Excel/Office events
+        } else if (event.application?.includes('Excel') || event.application?.includes('Word')) {
+            const isExcel = event.application.includes('Excel');
+            
+            // Primary: COM automation for Windows, AppleScript for Mac
+            enhanced.replay_strategies.primary = {
+                method: 'com_automation',
+                platform: process.platform === 'darwin' ? 'applescript' : 'win32com',
+                application: event.application,
+                confidence: 0.90
+            };
+            
+            // Add cell reference if available from Python events
+            if (event.pythonEvent?.type === 'excel' && event.pythonEvent.cell) {
+                enhanced.replay_strategies.primary.cell_reference = event.pythonEvent.cell;
+                enhanced.replay_strategies.primary.value = event.pythonEvent.value;
+            }
+            
+            // Secondary: Accessibility API
+            enhanced.replay_strategies.secondary = {
+                method: 'accessibility_api',
+                window_title: event.window,
+                confidence: 0.60
+            };
+            
+            // Fallback: Coordinates with window-relative position
+            if (event.position || (event.x !== undefined && event.y !== undefined)) {
+                enhanced.replay_strategies.fallback = {
+                    method: 'coordinate',
+                    value: {
+                        x: event.position?.x || event.x,
+                        y: event.position?.y || event.y
+                    },
+                    confidence: 0.40,
+                    relative_to: 'window',
+                    window_title: event.window
+                };
+            }
+            
+        // Handle desktop application events
+        } else if (event.type === 'click' || event.type === 'keypress') {
+            // Primary: Try window-relative coordinates
+            if (event.window && (event.position || (event.x !== undefined && event.y !== undefined))) {
+                enhanced.replay_strategies.primary = {
+                    method: 'coordinate',
+                    value: {
+                        x: event.position?.x || event.x,
+                        y: event.position?.y || event.y
+                    },
+                    confidence: 0.50,
+                    relative_to: 'window',
+                    window_title: event.window,
+                    application: event.application || event.activeApp?.name
+                };
+            }
+            
+            // Fallback: Absolute coordinates
+            if (event.position || (event.x !== undefined && event.y !== undefined)) {
+                enhanced.replay_strategies.fallback = {
+                    method: 'coordinate',
+                    value: {
+                        x: event.position?.x || event.x,
+                        y: event.position?.y || event.y
+                    },
+                    confidence: 0.30,
+                    relative_to: 'screen'
+                };
+            }
+        }
+        
+        // Add special handling for typed text
+        if (event.type === 'typed_text' || event.type === 'keystroke') {
+            enhanced.replay_strategies.text_input = {
+                method: 'keyboard_input',
+                value: event.text || event.key,
+                confidence: 0.95
+            };
+        }
+        
+        // Add clipboard/Excel specific strategies
+        if (event.pythonEvent) {
+            if (event.pythonEvent.type === 'clipboard') {
+                enhanced.replay_strategies.clipboard = {
+                    method: 'clipboard_operation',
+                    action: event.pythonEvent.action,
+                    content: event.pythonEvent.content,
+                    confidence: 0.90
+                };
+            }
+        }
+        
+        return enhanced;
+    }
+    
+    /**
+     * Detect applications used in the capture
+     */
+    detectApplicationsUsed(nodes) {
+        const apps = new Set();
+        
+        nodes.forEach(node => {
+            if (node.events) {
+                node.events.forEach(event => {
+                    if (event.application) apps.add(event.application);
+                    if (event.activeApp?.name) apps.add(event.activeApp.name);
+                    // Check for browser indicators
+                    if (event.pageContext || event.element?.selectors) {
+                        apps.add('Browser');
+                    }
+                });
+            }
+        });
+        
+        return Array.from(apps);
+    }
+    
+    /**
+     * Calculate coordinate reliability based on capture data
+     */
+    calculateCoordinateReliability(nodes) {
+        let hasMultipleWindows = false;
+        let hasWindowMovement = false;
+        let hasBrowserEvents = false;
+        
+        const windowPositions = new Map();
+        
+        nodes.forEach(node => {
+            if (node.events) {
+                node.events.forEach(event => {
+                    // Check for browser events (more reliable with selectors)
+                    if (event.element?.selectors || event.pageContext) {
+                        hasBrowserEvents = true;
+                    }
+                    
+                    // Track window positions
+                    if (event.window) {
+                        if (!windowPositions.has(event.window)) {
+                            windowPositions.set(event.window, []);
+                        }
+                        if (event.position) {
+                            windowPositions.get(event.window).push(event.position);
+                        }
+                    }
+                });
+            }
+        });
+        
+        // Check for multiple windows
+        hasMultipleWindows = windowPositions.size > 1;
+        
+        // Calculate reliability score
+        if (hasBrowserEvents) {
+            return 'low'; // Browser events should use selectors
+        } else if (hasMultipleWindows) {
+            return 'medium'; // Multiple windows make coordinates less reliable
+        } else {
+            return 'medium-high'; // Single window, desktop app
+        }
     }
     
     /**

@@ -2230,6 +2230,7 @@ class ProcessCaptureApp {
         
         const extensions = {
             'json': 'json',
+            'json-replay': 'json',
             'raw-log': 'txt',
             'yaml': 'yaml',
             'mermaid': 'md',
@@ -2245,6 +2246,7 @@ class ProcessCaptureApp {
         // Create proper MIME types
         const mimeTypes = {
             'json': 'application/json',
+            'json-replay': 'application/json',
             'raw-log': 'text/plain',
             'yaml': 'text/yaml',
             'mermaid': 'text/markdown',
