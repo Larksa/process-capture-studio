@@ -302,9 +302,22 @@ class ReplayController {
             actionHtml += '<div class="action-header">';
             actionHtml += '<span class="action-icon">🖱️</span>';
             
-            // Build meaningful title
+            // Build meaningful title - prioritize element context
             let title = 'Click';
-            if (event.context?.text && event.context.text.trim()) {
+            
+            // Check for browser element context first
+            if (event.element?.selectors) {
+                const sel = event.element.selectors;
+                if (sel.text && sel.text.trim()) {
+                    title = `Click on "${this.escapeHtml(sel.text.trim())}"`;
+                } else if (sel.id) {
+                    title = `Click on #${this.escapeHtml(sel.id)}`;
+                } else if (event.element.tag) {
+                    title = `Click on &lt;${this.escapeHtml(event.element.tag)}&gt;`;
+                }
+            }
+            // Fallback to regular context
+            else if (event.context?.text && event.context.text.trim()) {
                 title = `Click on "${this.escapeHtml(event.context.text.trim())}"`;
             } else if (event.context?.selector) {
                 if (event.context.selector.includes('#')) {
@@ -314,6 +327,13 @@ class ReplayController {
                     title = `Click on element`;
                 }
             }
+            // Use description if available
+            else if (event.description && !event.description.includes('Clicked in')) {
+                // Extract just the action part, not the "in application" part
+                const actionPart = event.description.match(/^([^in]+?)(?:\s+in\s+|$)/)?.[1];
+                if (actionPart) title = this.escapeHtml(actionPart.trim());
+            }
+            
             actionHtml += `<span class="action-title">${title}</span>`;
             actionHtml += '</div>';
             
@@ -337,6 +357,15 @@ class ReplayController {
                 <span class="meta-label">Position:</span>
                 <span>(${x}, ${y})</span>
             </div>`;
+            
+            // Window/File context
+            const windowTitle = event.window || event.context?.window;
+            if (windowTitle && windowTitle !== 'Unknown') {
+                actionHtml += `<div class="meta-item">
+                    <span class="meta-label">Window:</span>
+                    <span class="meta-window">${this.escapeHtml(windowTitle)}</span>
+                </div>`;
+            }
             
             // Application context - check multiple fields
             const appName = event.activeApp?.name || event.application || event.context?.application;

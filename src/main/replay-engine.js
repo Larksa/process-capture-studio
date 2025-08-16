@@ -415,20 +415,55 @@ class ReplayEngine {
             
             // Debug: Log what we're receiving
             console.log('Click event data:', { 
-                x: event.x || event.position?.x, 
-                y: event.y || event.position?.y,
-                position: event.position,
-                hasContext: !!event.context,
-                contextKeys: event.context ? Object.keys(event.context) : [],
-                activeApp: event.activeApp,
+                hasElement: !!event.element,
+                elementText: event.element?.selectors?.text,
+                elementId: event.element?.selectors?.id,
+                description: event.description,
+                window: event.window || event.context?.window,
                 application: event.application
             });
             
-            // Extract meaningful identifiers from context
-            if (event.context) {
+            // PRIORITY 1: Use pre-captured description if available
+            if (event.description && !event.description.includes('Clicked in')) {
+                description = event.description;
+                
+                // Extract filename from window title if available
+                const windowTitle = event.window || event.context?.window;
+                if (windowTitle && windowTitle !== 'Unknown') {
+                    const filename = this.extractFilename(windowTitle);
+                    if (filename && !description.includes(filename)) {
+                        description = description.replace(/ in .+$/, '') + ` in ${filename}`;
+                    }
+                }
+                return description;
+            }
+            
+            // PRIORITY 2: Use browser element context if available
+            if (event.element?.selectors) {
+                const sel = event.element.selectors;
+                
+                // Best: Element text (button label, link text, etc.)
+                if (sel.text && sel.text.trim()) {
+                    description = `Click on "${sel.text.trim()}"`;
+                }
+                // Good: Element ID
+                else if (sel.id) {
+                    description = `Click on #${sel.id}`;
+                }
+                // Fallback: Element tag and attributes
+                else if (event.element.tag) {
+                    description = `Click on <${event.element.tag}>`;
+                    if (sel.attributes?.class) {
+                        const mainClass = sel.attributes.class.split(' ')[0];
+                        description += `.${mainClass}`;
+                    }
+                }
+            }
+            
+            // PRIORITY 3: Try to extract from regular context
+            if (!description && event.context) {
                 const ctx = event.context;
                 
-                // Try to get the most meaningful description
                 if (ctx.text && ctx.text.trim()) {
                     description = `Click on "${ctx.text.trim()}"`;
                 } else if (ctx.selector) {
@@ -445,25 +480,34 @@ class ReplayEngine {
                 } else if (ctx.tagName) {
                     description = `Click on <${ctx.tagName.toLowerCase()}>`;
                 }
+            }
+            
+            // LAST RESORT: Use coordinates
+            if (!description) {
+                const x = event.x !== undefined ? event.x : 
+                          (event.position?.x !== undefined ? event.position.x : null);
+                const y = event.y !== undefined ? event.y : 
+                          (event.position?.y !== undefined ? event.position.y : null);
                 
-                // Add element type if available
-                if (ctx.type && !description.includes(ctx.type)) {
-                    description += ` ${ctx.type}`;
+                if (x !== null && y !== null) {
+                    description = `Click at (${x}, ${y})`;
+                } else {
+                    description = 'Click';
                 }
             }
             
-            // Fallback to coordinates - check both direct and position object
-            if (!description) {
-                const x = event.x !== undefined ? event.x : 
-                          (event.position?.x !== undefined ? event.position.x : 'unknown');
-                const y = event.y !== undefined ? event.y : 
-                          (event.position?.y !== undefined ? event.position.y : 'unknown');
-                description = `Click at (${x}, ${y})`;
-            }
-            
-            // Add application context if available - check multiple fields
+            // Add meaningful application/file context
+            const windowTitle = event.window || event.context?.window;
             const appName = event.activeApp?.name || event.application || event.context?.application;
-            if (appName) {
+            
+            if (windowTitle && windowTitle !== 'Unknown') {
+                const filename = this.extractFilename(windowTitle);
+                if (filename) {
+                    description += ` in ${filename}`;
+                } else if (appName) {
+                    description += ` in ${appName}`;
+                }
+            } else if (appName) {
                 description += ` in ${appName}`;
             }
             
@@ -511,6 +555,53 @@ class ReplayEngine {
         }
         
         return event.type || 'Unknown action';
+    }
+    
+    /**
+     * Extract filename from window title
+     */
+    extractFilename(windowTitle) {
+        if (!windowTitle) return null;
+        
+        // Common patterns for extracting filenames from window titles
+        // "Document.docx - Microsoft Word" → "Document.docx"
+        // "Budget-2025.xlsx - Excel" → "Budget-2025.xlsx"
+        // "index.html - Process Capture Studio - Visual Studio Code" → "index.html"
+        
+        // Try to extract filename before first dash or pipe
+        let match = windowTitle.match(/^([^—–\-|]+?)(?:\s*[—–\-|])/);
+        if (match && match[1]) {
+            const potential = match[1].trim();
+            // Check if it looks like a filename (has extension)
+            if (potential.includes('.') && !potential.startsWith('http')) {
+                return potential;
+            }
+        }
+        
+        // Try to extract filename with common extensions
+        match = windowTitle.match(/([^/\\]+\.\w{2,5})/);
+        if (match) {
+            return match[1];
+        }
+        
+        // For Excel, Word, etc., try to get the document name
+        if (windowTitle.includes('Microsoft Word') || windowTitle.includes('Word')) {
+            match = windowTitle.match(/^(.+?)\s*[—–\-]/);
+            if (match) return match[1].trim() + ' (Word)';
+        }
+        
+        if (windowTitle.includes('Microsoft Excel') || windowTitle.includes('Excel')) {
+            match = windowTitle.match(/^(.+?)\s*[—–\-]/);
+            if (match) return match[1].trim() + ' (Excel)';
+        }
+        
+        // For browsers, extract page title
+        if (windowTitle.includes('Chrome') || windowTitle.includes('Safari') || windowTitle.includes('Firefox')) {
+            match = windowTitle.match(/^(.+?)\s*[—–\-]/);
+            if (match) return match[1].trim();
+        }
+        
+        return null;
     }
     
     /**

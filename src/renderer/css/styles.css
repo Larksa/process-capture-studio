@@ -944,6 +944,12 @@ body {
     word-break: break-word;
 }
 
+.meta-window {
+    color: #0066cc;
+    font-weight: 500;
+    word-break: break-all;
+}
+
 /* Action type specific colors */
 .action-display[data-action-type="click"] {
     border-left-color: #2196F3;
