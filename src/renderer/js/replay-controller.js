@@ -292,46 +292,159 @@ class ReplayController {
     }
     
     /**
-     * Display current action being executed
+     * Display current action being executed with rich formatting
      */
     displayCurrentAction(event) {
-        let actionHtml = '<div class="action-details">';
+        let actionHtml = '<div class="action-details-enhanced">';
         
         if (event.type === 'click') {
-            actionHtml += `<strong>🖱️ Click</strong>`;
+            // Main action header
+            actionHtml += '<div class="action-header">';
+            actionHtml += '<span class="action-icon">🖱️</span>';
+            
+            // Build meaningful title
+            let title = 'Click';
+            if (event.context?.text && event.context.text.trim()) {
+                title = `Click on "${this.escapeHtml(event.context.text.trim())}"`;
+            } else if (event.context?.selector) {
+                if (event.context.selector.includes('#')) {
+                    const id = event.context.selector.match(/#([^\s.:\[]+)/)?.[1];
+                    if (id) title = `Click on #${this.escapeHtml(id)}`;
+                } else {
+                    title = `Click on element`;
+                }
+            }
+            actionHtml += `<span class="action-title">${title}</span>`;
+            actionHtml += '</div>';
+            
+            // Action details
+            actionHtml += '<div class="action-metadata">';
+            
+            // Element details
             if (event.context?.selector) {
-                actionHtml += `<br>Element: <code>${this.escapeHtml(event.context.selector)}</code>`;
+                actionHtml += `<div class="meta-item">
+                    <span class="meta-label">Element:</span>
+                    <code>${this.escapeHtml(event.context.selector)}</code>
+                </div>`;
             }
-            if (event.context?.text) {
-                actionHtml += `<br>Text: "${this.escapeHtml(event.context.text)}"`;
+            
+            // Position
+            const x = event.x !== undefined && event.x !== null ? event.x : 'undefined';
+            const y = event.y !== undefined && event.y !== null ? event.y : 'undefined';
+            actionHtml += `<div class="meta-item">
+                <span class="meta-label">Position:</span>
+                <span>(${x}, ${y})</span>
+            </div>`;
+            
+            // Application context
+            if (event.activeApp?.name) {
+                actionHtml += `<div class="meta-item">
+                    <span class="meta-label">Application:</span>
+                    <span>${this.escapeHtml(event.activeApp.name)}</span>
+                </div>`;
             }
-            actionHtml += `<br>Position: (${event.x}, ${event.y})`;
+            
+            // URL if available
+            if (event.context?.url) {
+                actionHtml += `<div class="meta-item">
+                    <span class="meta-label">Page:</span>
+                    <span class="meta-url">${this.escapeHtml(event.context.url)}</span>
+                </div>`;
+            }
+            
+            actionHtml += '</div>';
             
         } else if (event.type === 'keypress') {
-            actionHtml += `<strong>⌨️ Type</strong>`;
-            actionHtml += `<br>Key: <code>${this.escapeHtml(event.key)}</code>`;
+            actionHtml += '<div class="action-header">';
+            actionHtml += '<span class="action-icon">⌨️</span>';
+            actionHtml += `<span class="action-title">Type "${this.escapeHtml(event.key || 'key')}"</span>`;
+            actionHtml += '</div>';
+            
+            if (event.activeApp?.name) {
+                actionHtml += '<div class="action-metadata">';
+                actionHtml += `<div class="meta-item">
+                    <span class="meta-label">Application:</span>
+                    <span>${this.escapeHtml(event.activeApp.name)}</span>
+                </div>`;
+                actionHtml += '</div>';
+            }
             
         } else if (event.type === 'navigation') {
-            actionHtml += `<strong>🌐 Navigate</strong>`;
-            actionHtml += `<br>URL: <code>${this.escapeHtml(event.context?.url)}</code>`;
+            actionHtml += '<div class="action-header">';
+            actionHtml += '<span class="action-icon">🌐</span>';
+            actionHtml += '<span class="action-title">Navigate</span>';
+            actionHtml += '</div>';
+            
+            actionHtml += '<div class="action-metadata">';
+            actionHtml += `<div class="meta-item">
+                <span class="meta-label">URL:</span>
+                <code class="meta-url">${this.escapeHtml(event.context?.url || event.url || 'unknown')}</code>
+            </div>`;
+            actionHtml += '</div>';
             
         } else if (event.pythonEvent) {
             const pe = event.pythonEvent;
+            
             if (pe.type === 'clipboard') {
-                actionHtml += `<strong>📋 Clipboard</strong>`;
-                actionHtml += `<br>Action: ${pe.action}`;
+                actionHtml += '<div class="action-header">';
+                actionHtml += '<span class="action-icon">📋</span>';
+                actionHtml += `<span class="action-title">Clipboard: ${pe.action || 'Operation'}</span>`;
+                actionHtml += '</div>';
+                
                 if (pe.content) {
-                    actionHtml += `<br>Content: "${this.escapeHtml(pe.content)}"`;
+                    actionHtml += '<div class="action-metadata">';
+                    const preview = pe.content.substring(0, 100);
+                    actionHtml += `<div class="meta-item">
+                        <span class="meta-label">Content:</span>
+                        <span class="meta-content">"${this.escapeHtml(preview)}${pe.content.length > 100 ? '...' : ''}"</span>
+                    </div>`;
+                    actionHtml += '</div>';
                 }
+                
             } else if (pe.type === 'excel') {
-                actionHtml += `<strong>📊 Excel</strong>`;
-                actionHtml += `<br>Action: ${pe.action}`;
+                actionHtml += '<div class="action-header">';
+                actionHtml += '<span class="action-icon">📊</span>';
+                actionHtml += `<span class="action-title">Excel: ${pe.action || 'Operation'}</span>`;
+                actionHtml += '</div>';
+                
+                actionHtml += '<div class="action-metadata">';
                 if (pe.cell) {
-                    actionHtml += `<br>Cell: ${pe.cell}`;
+                    actionHtml += `<div class="meta-item">
+                        <span class="meta-label">Cell:</span>
+                        <span>${this.escapeHtml(pe.cell)}</span>
+                    </div>`;
                 }
+                if (pe.value) {
+                    actionHtml += `<div class="meta-item">
+                        <span class="meta-label">Value:</span>
+                        <span>"${this.escapeHtml(pe.value)}"</span>
+                    </div>`;
+                }
+                if (pe.sheet) {
+                    actionHtml += `<div class="meta-item">
+                        <span class="meta-label">Sheet:</span>
+                        <span>${this.escapeHtml(pe.sheet)}</span>
+                    </div>`;
+                }
+                actionHtml += '</div>';
             }
+            
+        } else if (event.type === 'step-boundary') {
+            actionHtml += '<div class="action-header">';
+            actionHtml += '<span class="action-icon">📍</span>';
+            actionHtml += `<span class="action-title">Step: ${this.escapeHtml(event.description || 'Step boundary')}</span>`;
+            actionHtml += '</div>';
+            
+        } else if (event.type === 'mark-before') {
+            actionHtml += '<div class="action-header">';
+            actionHtml += '<span class="action-icon">🎯</span>';
+            actionHtml += `<span class="action-title">Intent: ${this.escapeHtml(event.description || 'User action')}</span>`;
+            actionHtml += '</div>';
+            
         } else {
-            actionHtml += `<strong>${event.type}</strong>`;
+            actionHtml += '<div class="action-header">';
+            actionHtml += `<span class="action-title">${this.escapeHtml(event.type || 'Unknown action')}</span>`;
+            actionHtml += '</div>';
         }
         
         actionHtml += '</div>';
@@ -393,12 +506,23 @@ class ReplayController {
     }
     
     /**
-     * Add entry to replay log
+     * Add entry to replay log with enhanced formatting
      */
     addLogEntry(level, message) {
         const entry = document.createElement('div');
         entry.className = `replay-log-entry ${level}`;
-        entry.textContent = `${new Date().toLocaleTimeString()}: ${message}`;
+        
+        // Add time as data attribute for CSS ::before
+        const time = new Date().toLocaleTimeString('en-US', { 
+            hour12: false, 
+            hour: '2-digit', 
+            minute: '2-digit', 
+            second: '2-digit' 
+        });
+        entry.setAttribute('data-time', time);
+        
+        // Just the message, time is handled by CSS
+        entry.textContent = message;
         
         this.elements.replayLog.appendChild(entry);
         this.elements.replayLog.scrollTop = this.elements.replayLog.scrollHeight;

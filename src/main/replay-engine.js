@@ -406,27 +406,97 @@ class ReplayEngine {
     }
     
     /**
-     * Get human-readable event description
+     * Get human-readable event description with rich context
      */
     getEventDescription(event) {
+        // Handle click events with rich context
         if (event.type === 'click') {
-            if (event.context?.selector) {
-                return `Click on ${event.context.selector}`;
+            let description = '';
+            
+            // Extract meaningful identifiers from context
+            if (event.context) {
+                const ctx = event.context;
+                
+                // Try to get the most meaningful description
+                if (ctx.text && ctx.text.trim()) {
+                    description = `Click on "${ctx.text.trim()}"`;
+                } else if (ctx.selector) {
+                    // Parse selector for meaningful info
+                    if (ctx.selector.includes('#')) {
+                        const id = ctx.selector.match(/#([^\s.:\[]+)/)?.[1];
+                        if (id) description = `Click on #${id}`;
+                    } else if (ctx.selector.includes('.')) {
+                        const className = ctx.selector.match(/\.([^\s.:\[]+)/)?.[1];
+                        if (className) description = `Click on element with class "${className}"`;
+                    } else {
+                        description = `Click on ${ctx.selector}`;
+                    }
+                } else if (ctx.tagName) {
+                    description = `Click on <${ctx.tagName.toLowerCase()}>`;
+                }
+                
+                // Add element type if available
+                if (ctx.type && !description.includes(ctx.type)) {
+                    description += ` ${ctx.type}`;
+                }
             }
-            return `Click at (${event.x}, ${event.y})`;
+            
+            // Fallback to coordinates
+            if (!description) {
+                const x = event.x !== undefined ? event.x : 'unknown';
+                const y = event.y !== undefined ? event.y : 'unknown';
+                description = `Click at (${x}, ${y})`;
+            }
+            
+            // Add application context if available
+            if (event.activeApp?.name) {
+                description += ` in ${event.activeApp.name}`;
+            }
+            
+            return description;
+            
         } else if (event.type === 'keypress') {
-            return `Type "${event.key}"`;
+            const key = event.key || event.keycode || 'unknown';
+            if (event.activeApp?.name) {
+                return `Type "${key}" in ${event.activeApp.name}`;
+            }
+            return `Type "${key}"`;
+            
         } else if (event.type === 'navigation') {
-            return `Navigate to ${event.context?.url}`;
+            const url = event.context?.url || event.url || 'unknown URL';
+            return `Navigate to ${url}`;
+            
         } else if (event.pythonEvent) {
             const pe = event.pythonEvent;
+            
             if (pe.type === 'clipboard') {
-                return `Copy/Paste text`;
+                const action = pe.action || 'Copy/Paste';
+                const preview = pe.content ? 
+                    `: "${pe.content.substring(0, 30)}${pe.content.length > 30 ? '...' : ''}"` : '';
+                return `📋 ${action}${preview}`;
+                
             } else if (pe.type === 'excel') {
-                return `Excel: ${pe.action}`;
+                let desc = `📊 Excel: ${pe.action || 'Operation'}`;
+                if (pe.cell) desc += ` at cell ${pe.cell}`;
+                if (pe.value) desc += ` - "${pe.value}"`;
+                if (pe.sheet) desc += ` in ${pe.sheet}`;
+                return desc;
+                
+            } else if (pe.type === 'file') {
+                return `📁 File: ${pe.action} "${pe.path || 'unknown'}"`;
             }
+            
+            return `Python: ${pe.type}`;
         }
-        return event.type;
+        
+        // Handle other event types
+        if (event.type === 'step-boundary') {
+            return `📍 Step: ${event.description || 'Step boundary'}`;
+        } else if (event.type === 'mark-before') {
+            return `🎯 Intent: ${event.description || 'Marked action'}`;
+        }
+        
+        return event.type || 'Unknown action';
     }
     
     /**
