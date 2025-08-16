@@ -13,7 +13,7 @@ Process Capture Studio is an Electron app that captures user workflows WITH cont
 npm install && npm run rebuild
 
 # Run Application
-npm start                # Classic UI (stable)
+npm start                # Classic UI (stable, default)
 npm start:modern         # Modern terminal UI (experimental)
 npm run dev              # Development mode with auto-reload
 
@@ -74,16 +74,19 @@ The **Global Event Buffer** in `capture-service.js` is the single source of trut
 - `browser-context-worker.js` - Forked process for Playwright CDP operations
 - `browser-context-service.js` - Browser context enrichment, session management
 - `python-bridge.js` - WebSocket server for Python service communication
+- `replay-engine.js` - Executes captured automations for validation (NEW)
 - `mark-before-handler.js` - Intent capture (Cmd+Shift+M) handling
 - `step-boundary-handler.js` - Groups events into logical steps
 - `window-manager.js` - Multi-window management, positioning
 - `preload.js` - Secure bridge between renderer and main process
 
 ### Renderer Process (`src/renderer/`)
+- `index.html` - Classic UI (default, stable)
+- `modern.html` - Modern terminal UI (experimental)
 - `js/app.js` - Classic UI main application logic
-- `js/modern-app.js` - Modern terminal-style UI (experimental)
-- `js/process-engine.js` - Export generation (Playwright, Python, JSON)
-- `js/canvas-builder.js` - Visual process map rendering
+- `js/modern-app.js` - Modern terminal-style UI logic
+- `js/process-engine.js` - Export generation (Playwright, Python, JSON, JSON-Replay)
+- `js/replay-controller.js` - Replay Center UI management (NEW)
 - `js/activity-tracker.js` - Activity panel updates
 - `js/chat-guide.js` - Guide panel interactions
 - `js/workflow-analyzer.js` - Pattern detection, loop recognition
@@ -93,6 +96,21 @@ The **Global Event Buffer** in `capture-service.js` is the single source of trut
 - `clipboard_monitor.py` - Cross-platform clipboard monitoring
 - `start_capture.sh` - Shell script to start Python service
 - `requirements.txt` - Python dependencies
+
+## Recent Features
+
+### Replay Automation (feature/replay-automation-button branch)
+- **Replay Engine**: Simulates captured automations for validation
+- **Replay Center**: Replaced Process Map panel with functional replay controls
+- **Rich Context Display**: Shows button names, file names instead of coordinates
+- **Multiple speeds**: 0.5x, 1x, 2x, 5x replay with step-through mode
+
+### JSON Replay Strategy Export (NEW)
+- Enhanced JSON export with replay strategies per event
+- Primary, secondary, and fallback automation methods
+- Confidence scores for each method
+- Application-specific hints (COM automation, AppleScript)
+- Window-relative coordinates where applicable
 
 ## Core Capture Capabilities
 
@@ -148,6 +166,8 @@ browserWorker.send({ id: requestId, type: 'action', data });
 pythonBridge = new PythonBridge();
 pythonBridge.start(captureService);
 // Events flow: Python → WebSocket → Main → Global Buffer
+// IMPORTANT: Use sendToPython() not send()
+pythonBridge.sendToPython(message);
 ```
 
 ### Self-Activity Filtering
@@ -156,6 +176,15 @@ pythonBridge.start(captureService);
 const isOwnProcess = activeApp?.name?.includes('Process Capture Studio') || 
                     activeApp?.owner?.name?.includes('Electron');
 if (isOwnProcess) return; // Skip capture
+```
+
+### Coordinate Extraction Pattern
+```javascript
+// Events may store coordinates in different locations
+const x = event.x !== undefined ? event.x : 
+          (event.position?.x !== undefined ? event.position.x : 'unknown');
+const y = event.y !== undefined ? event.y : 
+          (event.position?.y !== undefined ? event.position.y : 'unknown');
 ```
 
 ## IPC Event Flow
@@ -169,14 +198,33 @@ Critical channels:
 - `browser:saveSession` → Capture auth state
 - `session:capture/load` → Session management
 - `step:start/end` → Step boundary grouping
+- `replay:start/stop/pause/resume` → Replay control (NEW)
+- `replay:status` → Replay status updates (NEW)
+- `replay:log` → Replay log entries (NEW)
 
 ## Export System
 
 ProcessEngine generates different formats based on captured data:
+- **JSON** → Complete data structure
+- **JSON Replay Strategy** → Enhanced JSON with replay methods and confidence scores (NEW)
 - **Playwright/Puppeteer** → Web with DOM selectors + embedded session state
 - **Python/pyautogui** → Desktop apps, file operations
+- **Selenium** → Cross-browser testing format
 - **Raw Log** → Complete capture with all context (debugging)
-- **JSON** → Structured data with Excel values, clipboard content, session state
+- **YAML** → Human-readable structured format
+- **Mermaid** → Diagram markdown
+- **Markdown/Plain Text** → Documentation formats
+
+### Export Format Selection
+```javascript
+// In process-engine.js exportForAutomation()
+switch (format) {
+    case 'json': return JSON.stringify(exportData, null, 2);
+    case 'json-replay': return this.generateJSONReplayStrategy(exportData);
+    case 'playwright': return this.generatePlaywrightCode();
+    // ... other formats
+}
+```
 
 ## Common Issues & Solutions
 
@@ -208,6 +256,11 @@ npm run rebuild
 - Excel must be running before Python service starts
 - On macOS: Grant automation permissions for Terminal
 - Check for "📊 Excel: Selected" messages in Python terminal
+
+### Replay Not Showing Context
+- Ensure browser worker is initialized
+- Check that events have element.selectors populated
+- Verify Python bridge is using sendToPython() method
 
 ## Testing Approach
 
@@ -247,6 +300,13 @@ test/
 - Limited Excel support (LibreOffice only)
 - X11 or Wayland considerations for screen capture
 
+## Multi-Monitor Considerations
+
+- Captures absolute coordinates across all monitors
+- Browser selectors are monitor-independent (preferred)
+- For best results, record on single monitor
+- Replay may need same monitor configuration for coordinate-based actions
+
 ## Security Considerations
 
 - NO passwords stored (only marks credential fields)
@@ -276,3 +336,15 @@ builds/
 ```
 
 Build configuration is in `package.json` under the `build` key.
+
+## Git Workflow
+
+Current active branch: `feature/replay-automation-button`
+- Contains replay functionality and JSON Replay Strategy export
+- Not yet merged to main
+
+To switch between branches:
+```bash
+git checkout main                             # Stable version
+git checkout feature/replay-automation-button # Latest features
+```

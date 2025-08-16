@@ -528,10 +528,21 @@ class ReplayEngine {
             const pe = event.pythonEvent;
             
             if (pe.type === 'clipboard') {
-                const action = pe.action || 'Copy/Paste';
-                const preview = pe.content ? 
-                    `: "${pe.content.substring(0, 30)}${pe.content.length > 30 ? '...' : ''}"` : '';
-                return `📋 ${action}${preview}`;
+                // Check for Excel source information
+                if (pe.source?.excel_selection) {
+                    const excel = pe.source.excel_selection;
+                    const content = pe.content ? `"${pe.content.substring(0, 30)}${pe.content.length > 30 ? '...' : ''}"` : '';
+                    let desc = `📋 Copy ${content} from`;
+                    if (excel.address) desc += ` ${excel.address}`;
+                    if (excel.sheet) desc += ` in ${excel.sheet}`;
+                    if (excel.workbook) desc += ` - ${excel.workbook}`;
+                    return desc;
+                } else {
+                    const action = pe.action || 'Copy/Paste';
+                    const preview = pe.content ? 
+                        `: "${pe.content.substring(0, 30)}${pe.content.length > 30 ? '...' : ''}"` : '';
+                    return `📋 ${action}${preview}`;
+                }
                 
             } else if (pe.type === 'excel') {
                 let desc = `📊 Excel: ${pe.action || 'Operation'}`;
@@ -545,6 +556,47 @@ class ReplayEngine {
             }
             
             return `Python: ${pe.type}`;
+        }
+        
+        // Also check for Excel-specific event types
+        if (event.type === 'excel-operation') {
+            let desc = '📊 Excel: ';
+            if (event.action === 'select' && event.address) {
+                desc += `Select ${event.address}`;
+                if (event.sheet) desc += ` in ${event.sheet}`;
+                if (event.workbook) desc += ` - ${event.workbook}`;
+                if (event.value) {
+                    const valuePreview = String(event.value).substring(0, 30);
+                    desc += ` = "${valuePreview}"`;
+                }
+            } else {
+                desc += event.description || 'Operation';
+            }
+            return desc;
+        }
+        
+        // Check for clipboard events with rich source
+        if (event.type === 'clipboard') {
+            let desc = '📋 ';
+            desc += event.action === 'copy' ? 'Copy' : event.action === 'paste' ? 'Paste' : 'Clipboard';
+            
+            // Check for Excel source
+            if (event.source?.excel_selection) {
+                const excel = event.source.excel_selection;
+                if (event.contentPreview) desc += ` "${event.contentPreview}"`;
+                desc += ' from';
+                if (excel.address) desc += ` ${excel.address}`;
+                if (excel.sheet) desc += ` in ${excel.sheet}`;
+                if (excel.workbook) desc += ` - ${excel.workbook}`;
+            } else if (event.source?.document) {
+                desc += ` from ${event.source.document}`;
+                if (event.contentPreview) desc += `: "${event.contentPreview}"`;
+            } else if (event.contentPreview || event.content) {
+                const preview = event.contentPreview || event.content;
+                desc += `: "${preview.substring(0, 50)}${preview.length > 50 ? '...' : ''}"`;
+            }
+            
+            return desc;
         }
         
         // Handle other event types

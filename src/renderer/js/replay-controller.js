@@ -420,18 +420,65 @@ class ReplayController {
             if (pe.type === 'clipboard') {
                 actionHtml += '<div class="action-header">';
                 actionHtml += '<span class="action-icon">📋</span>';
-                actionHtml += `<span class="action-title">Clipboard: ${pe.action || 'Operation'}</span>`;
+                
+                // Check for Excel source in clipboard
+                if (pe.source?.excel_selection) {
+                    const excel = pe.source.excel_selection;
+                    let title = pe.action === 'copy' ? 'Copy from Excel' : 'Clipboard';
+                    if (excel.address) title = `Copy ${excel.address}`;
+                    if (excel.workbook) title += ` from ${excel.workbook}`;
+                    actionHtml += `<span class="action-title">${this.escapeHtml(title)}</span>`;
+                } else {
+                    actionHtml += `<span class="action-title">Clipboard: ${pe.action || 'Operation'}</span>`;
+                }
                 actionHtml += '</div>';
                 
+                actionHtml += '<div class="action-metadata">';
+                
+                // Show content preview
                 if (pe.content) {
-                    actionHtml += '<div class="action-metadata">';
                     const preview = pe.content.substring(0, 100);
                     actionHtml += `<div class="meta-item">
                         <span class="meta-label">Content:</span>
                         <span class="meta-content">"${this.escapeHtml(preview)}${pe.content.length > 100 ? '...' : ''}"</span>
                     </div>`;
-                    actionHtml += '</div>';
                 }
+                
+                // Show Excel source details if available
+                if (pe.source?.excel_selection) {
+                    const excel = pe.source.excel_selection;
+                    if (excel.address) {
+                        actionHtml += `<div class="meta-item">
+                            <span class="meta-label">Range:</span>
+                            <span>${this.escapeHtml(excel.address)}</span>
+                        </div>`;
+                    }
+                    if (excel.sheet) {
+                        actionHtml += `<div class="meta-item">
+                            <span class="meta-label">Sheet:</span>
+                            <span>${this.escapeHtml(excel.sheet)}</span>
+                        </div>`;
+                    }
+                    if (excel.workbook) {
+                        actionHtml += `<div class="meta-item">
+                            <span class="meta-label">Workbook:</span>
+                            <span>${this.escapeHtml(excel.workbook)}</span>
+                        </div>`;
+                    }
+                    if (excel.path) {
+                        actionHtml += `<div class="meta-item">
+                            <span class="meta-label">Path:</span>
+                            <span class="meta-url">${this.escapeHtml(excel.path)}</span>
+                        </div>`;
+                    }
+                } else if (pe.source?.document) {
+                    actionHtml += `<div class="meta-item">
+                        <span class="meta-label">Source:</span>
+                        <span>${this.escapeHtml(pe.source.document)}</span>
+                    </div>`;
+                }
+                
+                actionHtml += '</div>';
                 
             } else if (pe.type === 'excel') {
                 actionHtml += '<div class="action-header">';
@@ -460,6 +507,104 @@ class ReplayController {
                 }
                 actionHtml += '</div>';
             }
+            
+        } else if (event.type === 'excel-operation') {
+            // Handle Excel operations with rich context
+            actionHtml += '<div class="action-header">';
+            actionHtml += '<span class="action-icon">📊</span>';
+            
+            let title = 'Excel: ';
+            if (event.action === 'select' && event.address) {
+                title += `Select ${event.address}`;
+                if (event.workbook) title += ` in ${event.workbook}`;
+            } else {
+                title += event.description || 'Operation';
+            }
+            actionHtml += `<span class="action-title">${this.escapeHtml(title)}</span>`;
+            actionHtml += '</div>';
+            
+            actionHtml += '<div class="action-metadata">';
+            if (event.address) {
+                actionHtml += `<div class="meta-item">
+                    <span class="meta-label">Range:</span>
+                    <span>${this.escapeHtml(event.address)}</span>
+                </div>`;
+            }
+            if (event.value) {
+                const valuePreview = String(event.value).substring(0, 100);
+                actionHtml += `<div class="meta-item">
+                    <span class="meta-label">Value:</span>
+                    <span>"${this.escapeHtml(valuePreview)}${event.value.length > 100 ? '...' : ''}"</span>
+                </div>`;
+            }
+            if (event.sheet) {
+                actionHtml += `<div class="meta-item">
+                    <span class="meta-label">Sheet:</span>
+                    <span>${this.escapeHtml(event.sheet)}</span>
+                </div>`;
+            }
+            if (event.workbook) {
+                actionHtml += `<div class="meta-item">
+                    <span class="meta-label">Workbook:</span>
+                    <span>${this.escapeHtml(event.workbook)}</span>
+                </div>`;
+            }
+            if (event.workbookPath) {
+                actionHtml += `<div class="meta-item">
+                    <span class="meta-label">Path:</span>
+                    <span class="meta-url">${this.escapeHtml(event.workbookPath)}</span>
+                </div>`;
+            }
+            actionHtml += '</div>';
+            
+        } else if (event.type === 'clipboard') {
+            // Handle clipboard events with rich source
+            actionHtml += '<div class="action-header">';
+            actionHtml += '<span class="action-icon">📋</span>';
+            
+            let title = event.action === 'copy' ? 'Copy' : event.action === 'paste' ? 'Paste' : 'Clipboard';
+            
+            // Check for Excel source
+            if (event.source?.excel_selection) {
+                const excel = event.source.excel_selection;
+                if (excel.address) title += ` ${excel.address}`;
+                if (excel.workbook) title += ` from ${excel.workbook}`;
+            } else if (event.source?.document) {
+                title += ` from ${event.source.document}`;
+            }
+            
+            actionHtml += `<span class="action-title">${this.escapeHtml(title)}</span>`;
+            actionHtml += '</div>';
+            
+            actionHtml += '<div class="action-metadata">';
+            
+            // Show content preview
+            if (event.contentPreview || event.content) {
+                const preview = event.contentPreview || event.content;
+                actionHtml += `<div class="meta-item">
+                    <span class="meta-label">Content:</span>
+                    <span class="meta-content">"${this.escapeHtml(preview.substring(0, 100))}${preview.length > 100 ? '...' : ''}"</span>
+                </div>`;
+            }
+            
+            // Show Excel details if available
+            if (event.source?.excel_selection) {
+                const excel = event.source.excel_selection;
+                if (excel.sheet) {
+                    actionHtml += `<div class="meta-item">
+                        <span class="meta-label">Sheet:</span>
+                        <span>${this.escapeHtml(excel.sheet)}</span>
+                    </div>`;
+                }
+                if (excel.path) {
+                    actionHtml += `<div class="meta-item">
+                        <span class="meta-label">Path:</span>
+                        <span class="meta-url">${this.escapeHtml(excel.path)}</span>
+                    </div>`;
+                }
+            }
+            
+            actionHtml += '</div>';
             
         } else if (event.type === 'step-boundary') {
             actionHtml += '<div class="action-header">';
