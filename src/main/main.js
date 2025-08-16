@@ -12,6 +12,7 @@ const WindowManager = require('./window-manager');
 const MarkBeforeHandler = require('./mark-before-handler');
 const StepBoundaryHandler = require('./step-boundary-handler');
 const PythonBridge = require('./python-bridge');
+const ReplayEngine = require('./replay-engine');
 
 // Keep references to avoid garbage collection
 let mainWindow = null;
@@ -20,6 +21,7 @@ let windowManager = null;
 let markBeforeHandler = null;
 let stepBoundaryHandler = null;
 let pythonBridge = null;
+let replayEngine = null;
 let tray = null;
 let browserWorker = null;
 let browserWorkerRequests = new Map(); // Track pending requests
@@ -140,6 +142,10 @@ function initializeServices() {
     
     // Connect Python bridge to capture service for Excel context
     captureService.setPythonBridge(pythonBridge);
+    
+    // Initialize Replay Engine
+    replayEngine = new ReplayEngine(captureService, pythonBridge);
+    replayEngine.setMainWindow(mainWindow);
     
     // Forward Python events to renderer
     pythonBridge.on('python-event', (event) => {

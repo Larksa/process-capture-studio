@@ -132,37 +132,80 @@
             </div>
         </div>
 
-        <!-- RIGHT PANEL: Interactive Process Canvas -->
-        <div id="canvas-panel" class="panel">
+        <!-- RIGHT PANEL: Replay Control Center -->
+        <div id="replay-panel" class="panel">
             <div class="panel-header">
-                <h3>🗺️ Process Map</h3>
-                <div class="canvas-controls">
-                    <button id="zoom-in" class="btn-icon">🔍+</button>
-                    <button id="zoom-out" class="btn-icon">🔍-</button>
-                    <button id="zoom-fit" class="btn-icon">⊡</button>
-                    <span class="separator">|</span>
-                    <button id="toggle-minimap" class="btn-icon">🗺️</button>
-                    <button id="export-menu" class="btn">Export ▼</button>
+                <h3>🎬 Replay Center</h3>
+                <div class="replay-header-controls">
+                    <button id="export-menu" class="btn">📤 Export</button>
                 </div>
             </div>
             
-            <div id="canvas-container" class="canvas-container">
-                <!-- SVG for connections -->
-                <svg id="connections-svg" class="connections-layer"></svg>
+            <div id="replay-container" class="replay-container">
+                <!-- Replay Controls -->
+                <div class="replay-controls">
+                    <button id="replay-start" class="btn btn-primary btn-large">
+                        ▶️ Test Replay
+                    </button>
+                    
+                    <div class="replay-options">
+                        <label class="speed-control">
+                            <span>Speed:</span>
+                            <select id="replay-speed">
+                                <option value="0.5">0.5x</option>
+                                <option value="1" selected>1x</option>
+                                <option value="2">2x</option>
+                                <option value="5">5x</option>
+                            </select>
+                        </label>
+                        
+                        <label class="replay-mode">
+                            <input type="checkbox" id="step-through-mode">
+                            <span>Step-through mode</span>
+                        </label>
+                    </div>
+                    
+                    <div class="replay-playback-controls" id="playback-controls" style="display: none;">
+                        <button id="replay-pause" class="btn">⏸️ Pause</button>
+                        <button id="replay-resume" class="btn" style="display: none;">▶️ Resume</button>
+                        <button id="replay-stop" class="btn btn-danger">⏹️ Stop</button>
+                        <button id="replay-next-step" class="btn" style="display: none;">⏭️ Next Step</button>
+                    </div>
+                </div>
                 
-                <!-- Nodes container -->
-                <div id="nodes-container" class="nodes-layer"></div>
+                <!-- Replay Progress -->
+                <div class="replay-progress-section">
+                    <div class="replay-progress-bar">
+                        <div id="replay-progress" class="replay-progress-fill" style="width: 0%"></div>
+                    </div>
+                    <div class="replay-progress-text">
+                        <span id="replay-step-counter">Ready to replay</span>
+                        <span id="replay-time-elapsed"></span>
+                    </div>
+                </div>
                 
-                <!-- Minimap -->
-                <div id="minimap" class="minimap hidden">
-                    <div class="minimap-viewport"></div>
+                <!-- Current Action Display -->
+                <div class="replay-current-action">
+                    <h4>Current Action</h4>
+                    <div id="replay-action-display" class="action-display">
+                        <div class="action-placeholder">
+                            No replay in progress. Click "Test Replay" to validate your captured automation.
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Replay Log -->
+                <div class="replay-log-section">
+                    <h4>Replay Log</h4>
+                    <div id="replay-log" class="replay-log">
+                        <!-- Log entries will appear here -->
+                    </div>
                 </div>
             </div>
             
-            <div class="canvas-status">
-                <span id="node-count">0 steps</span>
-                <span id="branch-count">0 branches</span>
-                <span id="completion-status">0% mapped</span>
+            <div class="replay-status">
+                <span id="replay-status-text">Ready</span>
+                <span id="replay-stats"></span>
             </div>
         </div>
     </div>
@@ -336,7 +379,9 @@
     <script src="js/process-engine.js"></script>
     <script src="js/terminal-renderer.js"></script>
     <script src="js/activity-tracker.js"></script>
-    <script src="js/canvas-builder.js"></script>
+    <!-- Canvas builder removed - replaced by replay controller -->
+    <!-- <script src="js/canvas-builder.js"></script> -->
+    <script src="js/replay-controller.js"></script>
     <script src="js/workflow-analyzer.js"></script>
     <script src="js/chat-guide.js"></script>
     <script src="js/app.js"></script>

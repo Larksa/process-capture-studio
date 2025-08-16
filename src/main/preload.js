@@ -115,6 +115,21 @@ contextBridge.exposeInMainWorld('electronAPI', {
         node: process.versions.node,
         chrome: process.versions.chrome,
         electron: process.versions.electron
+    },
+    
+    // Replay functionality
+    startReplay: (options) => ipcRenderer.invoke('replay:start', options),
+    pauseReplay: () => ipcRenderer.invoke('replay:pause'),
+    resumeReplay: () => ipcRenderer.invoke('replay:resume'),
+    stopReplay: () => ipcRenderer.invoke('replay:stop'),
+    nextReplayStep: () => ipcRenderer.invoke('replay:next-step'),
+    
+    // Replay event listeners
+    onReplayStatus: (callback) => {
+        ipcRenderer.on('replay:status', (event, data) => callback(data));
+    },
+    onReplayLog: (callback) => {
+        ipcRenderer.on('replay:log', (event, data) => callback(data));
     }
 });
 
