@@ -256,8 +256,14 @@ class ReplayEngine {
      * Execute desktop event via Python service
      */
     async executeDesktopEvent(event) {
-        if (!this.pythonBridge || !this.pythonBridge.isConnected()) {
-            throw new Error('Python service not connected');
+        if (!this.pythonBridge) {
+            console.warn('Python bridge not initialized, skipping desktop event');
+            return Promise.resolve();
+        }
+        
+        if (!this.pythonBridge.isConnected()) {
+            console.warn('Python service not connected, skipping desktop event');
+            return Promise.resolve();
         }
         
         return new Promise((resolve, reject) => {
@@ -274,7 +280,11 @@ class ReplayEngine {
                 }
             };
             
-            this.pythonBridge.send(message);
+            // Use the correct method name
+            const sent = this.pythonBridge.sendToPython(message);
+            if (!sent) {
+                console.warn('Failed to send message to Python service');
+            }
             
             // Python actions don't have callbacks, so resolve after a short delay
             setTimeout(resolve, 100);
@@ -285,8 +295,14 @@ class ReplayEngine {
      * Execute Python-specific event (clipboard, Excel, etc.)
      */
     async executePythonEvent(event) {
-        if (!this.pythonBridge || !this.pythonBridge.isConnected()) {
-            throw new Error('Python service not connected');
+        if (!this.pythonBridge) {
+            console.warn('Python bridge not initialized, skipping Python event');
+            return Promise.resolve();
+        }
+        
+        if (!this.pythonBridge.isConnected()) {
+            console.warn('Python service not connected, skipping Python event');
+            return Promise.resolve();
         }
         
         const pythonData = event.pythonEvent;
