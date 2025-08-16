@@ -413,6 +413,15 @@ class ReplayEngine {
         if (event.type === 'click') {
             let description = '';
             
+            // Debug: Log what we're receiving
+            console.log('Click event data:', { 
+                x: event.x, 
+                y: event.y, 
+                hasContext: !!event.context,
+                contextKeys: event.context ? Object.keys(event.context) : [],
+                activeApp: event.activeApp 
+            });
+            
             // Extract meaningful identifiers from context
             if (event.context) {
                 const ctx = event.context;

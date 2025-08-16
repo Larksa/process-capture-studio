@@ -329,8 +329,8 @@ class ReplayController {
             }
             
             // Position
-            const x = event.x !== undefined && event.x !== null ? event.x : 'undefined';
-            const y = event.y !== undefined && event.y !== null ? event.y : 'undefined';
+            const x = event.x !== undefined && event.x !== null ? event.x : 'unknown';
+            const y = event.y !== undefined && event.y !== null ? event.y : 'unknown';
             actionHtml += `<div class="meta-item">
                 <span class="meta-label">Position:</span>
                 <span>(${x}, ${y})</span>
