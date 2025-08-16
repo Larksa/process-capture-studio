@@ -328,19 +328,22 @@ class ReplayController {
                 </div>`;
             }
             
-            // Position
-            const x = event.x !== undefined && event.x !== null ? event.x : 'unknown';
-            const y = event.y !== undefined && event.y !== null ? event.y : 'unknown';
+            // Position - check both direct and position object
+            const x = event.x !== undefined && event.x !== null ? event.x : 
+                      (event.position?.x !== undefined && event.position.x !== null ? event.position.x : 'unknown');
+            const y = event.y !== undefined && event.y !== null ? event.y : 
+                      (event.position?.y !== undefined && event.position.y !== null ? event.position.y : 'unknown');
             actionHtml += `<div class="meta-item">
                 <span class="meta-label">Position:</span>
                 <span>(${x}, ${y})</span>
             </div>`;
             
-            // Application context
-            if (event.activeApp?.name) {
+            // Application context - check multiple fields
+            const appName = event.activeApp?.name || event.application || event.context?.application;
+            if (appName) {
                 actionHtml += `<div class="meta-item">
                     <span class="meta-label">Application:</span>
-                    <span>${this.escapeHtml(event.activeApp.name)}</span>
+                    <span>${this.escapeHtml(appName)}</span>
                 </div>`;
             }
             

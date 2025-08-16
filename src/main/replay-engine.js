@@ -415,11 +415,13 @@ class ReplayEngine {
             
             // Debug: Log what we're receiving
             console.log('Click event data:', { 
-                x: event.x, 
-                y: event.y, 
+                x: event.x || event.position?.x, 
+                y: event.y || event.position?.y,
+                position: event.position,
                 hasContext: !!event.context,
                 contextKeys: event.context ? Object.keys(event.context) : [],
-                activeApp: event.activeApp 
+                activeApp: event.activeApp,
+                application: event.application
             });
             
             // Extract meaningful identifiers from context
@@ -450,16 +452,19 @@ class ReplayEngine {
                 }
             }
             
-            // Fallback to coordinates
+            // Fallback to coordinates - check both direct and position object
             if (!description) {
-                const x = event.x !== undefined ? event.x : 'unknown';
-                const y = event.y !== undefined ? event.y : 'unknown';
+                const x = event.x !== undefined ? event.x : 
+                          (event.position?.x !== undefined ? event.position.x : 'unknown');
+                const y = event.y !== undefined ? event.y : 
+                          (event.position?.y !== undefined ? event.position.y : 'unknown');
                 description = `Click at (${x}, ${y})`;
             }
             
-            // Add application context if available
-            if (event.activeApp?.name) {
-                description += ` in ${event.activeApp.name}`;
+            // Add application context if available - check multiple fields
+            const appName = event.activeApp?.name || event.application || event.context?.application;
+            if (appName) {
+                description += ` in ${appName}`;
             }
             
             return description;
