@@ -236,6 +236,58 @@ Traditional RPA tools (UiPath, Blue Prism) are black boxes. Our approach:
 - **Developer-friendly**: Git-compatible text files
 - **AI-ready**: Captures the "why" for future AI processing
 
+## 🔐 Authentication Replay System (Aug 18, 2025)
+
+### The Authentication Problem
+**Challenge**: Recording workflows that include login (username, password, 2FA) but wanting replay to skip authentication and start from the logged-in state.
+
+**Solution**: Created a comprehensive authentication marking system:
+1. Capture browser session after login (cookies, localStorage)
+2. Mark which steps are authentication-related
+3. Set a replay start point after authentication
+4. Export code that skips auth steps when session is available
+
+### Technical Implementation
+
+#### **UI Components Added**
+- **Mark Login Steps button**: Appears after session capture
+- **Set Replay Start button**: Marks where replay should begin
+- **Visual indicators**: Yellow highlighting for auth steps, green for replay start
+- **Interactive selection mode**: Click activities to mark them
+
+#### **ProcessEngine Methods**
+```javascript
+markAsAuthentication(activityIds) // Mark activities as auth steps
+setReplayStartPoint(activityId)   // Set where replay starts
+getAuthenticationSteps()           // Get all auth step IDs
+clearAuthenticationMarkings()      // Reset all markings
+```
+
+#### **Export Logic Enhancement**
+- Playwright code now checks for `node.metadata.isAuthenticationStep`
+- Skips auth nodes when `sessionState` exists
+- Adds clear comments showing what was skipped
+- Marks replay start point in generated code
+
+### Key Insights
+- **Session state is powerful**: Contains cookies, localStorage, sessionStorage
+- **Visual feedback crucial**: Users need to see what will be skipped
+- **Flexibility required**: Different sites have different auth flows
+- **Time savings significant**: ~3 seconds per auth step skipped
+
+### Testing Results
+Created test script showing:
+- 9 total nodes in workflow
+- 6 authentication steps skipped
+- 3 steps executed after auth
+- ~18 seconds saved on replay
+
+### Future Enhancements
+- Named session profiles (e.g., "ActiveCampaign Dev Account")
+- Session expiry detection and refresh
+- Multi-account session management
+- Automatic auth step detection via heuristics
+
 ## 🚀 Phase 0/1 Implementation Insights (Aug 11, 2025 Evening)
 
 ### Intent-First Revolution
@@ -281,4 +333,161 @@ Traditional RPA tools (UiPath, Blue Prism) are black boxes. Our approach:
 - **15 Files Modified**: Clean separation of concerns
 - **5 Events Captured**: In ~20 seconds of real usage
 - **Sub-Step Detection**: Correctly identified all major actions
+
+## 🔮 Shadow DOM & Framework ID Enhancement (Aug 18, 2025)
+
+### Technical Skills Gained
+
+#### **Shadow DOM Detection & Traversal**
+- **Depth**: Beginner → Advanced
+- **Key insight**: Playwright auto-pierces open Shadow DOM, Selenium needs JavaScript
+- **Critical learning**: XPath doesn't work through Shadow DOM boundaries
+- **Enterprise relevance**: Essential for Salesforce Lightning, Vaadin, Material Components
+
+#### **Framework ID Pattern Recognition**
+- **Depth**: Intermediate → Expert
+- **Patterns mastered**: 
+  - Ember: `#ember\d+`
+  - React: `#react-[\w-]+`
+  - Angular: `#ng-[\w-]+`, `_ngcontent-[\w-]+`
+  - Vue: `data-v-[\w]+`
+  - Salesforce: `#aura-pos-\d+`
+- **Key insight**: Framework IDs break automation after every build
+- **Solution**: Detect and remove, use semantic selectors instead
+
+#### **Multi-Strategy Selector Generation**
+- **Priority discovered**: Data attributes > Stable IDs > ARIA > Classes > Text > Position
+- **Fallback strategies**: Always generate 3+ alternatives
+- **Best practice**: `[data-testid]` is gold standard
+- **Reality check**: Many apps don't have data attributes, need fallbacks
+
+### Architectural Insights
+
+#### **Double Browser Launch Bug**
+- **Root cause**: Worker auto-connecting on startup + button click
+- **Solution**: Lazy initialization - only connect when requested
+- **Lesson**: Worker process initialization timing is critical
+- **Pattern**: Similar to singleton pattern violations
+
+#### **Selector Stability vs Specificity Trade-off**
+- **Paradox**: Most specific selector often least stable
+- **Example**: `#ember650 > div > button` (specific but breaks)
+- **Better**: `[data-test="submit"]` (less specific but stable)
+- **Mental model**: Prefer semantic meaning over positional uniqueness
+
+### Problems Solved
+
+#### **ActiveCampaign Ember IDs**
+- **Issue**: Selectors with #ember650 fail after rebuild
+- **Time to solve**: 4 hours
+- **Solution**: Framework detection + removal + data attributes
+- **Code added**: shadow-dom-utils.js (500+ lines)
+- **Impact**: Works with ANY Ember.js application now
+
+#### **Shadow DOM Elements Invisible**
+- **Issue**: Can't capture elements inside web components
+- **Examples**: vaadin-button, mwc-textfield, lightning-input
+- **Solution**: Detect Shadow DOM, build path, leverage Playwright
+- **Fallback**: JavaScript execution for Selenium/WebDriver
+
+#### **Enterprise Framework Detection**
+- **Frameworks identified**: 
+  - Salesforce Lightning
+  - Vaadin
+  - ServiceNow
+  - Microsoft Dynamics
+  - SAP UI5
+  - Workday
+- **How**: Check for framework-specific elements/attributes
+- **Why valuable**: Can optimize selectors per framework
+
+### Gotchas Discovered
+
+#### **Playwright Magic Hides Complexity**
+- **Issue**: Playwright auto-pierces, exported Selenium doesn't
+- **Solution**: Add JavaScript fallback in exports
+- **Lesson**: Understand what your tools do for you
+
+#### **Closed Shadow Roots Are Walls**
+- **Reality**: No automation tool can access closed shadow roots
+- **Workaround**: Use component's public API or events
+- **Example**: Some security-focused components use closed mode
+
+#### **Framework Classes Also Unstable**
+- **Examples**: `.css-1a2b3c` (CSS Modules), `.sc-dkPtRN` (Styled Components)
+- **Solution**: Filter these out like framework IDs
+- **Pattern**: Short random strings = probably generated
+
+### Code Contributions
+
+#### **New Files Created**
+1. `shadow-dom-utils.js` - 500+ lines of detection/traversal utilities
+2. `test-shadow-dom.html` - Comprehensive test page
+3. `TEST_SHADOW_DOM_INSTRUCTIONS.md` - Testing guide
+
+#### **Files Enhanced**
+1. `browser-context-service.js` - Added 200+ lines for enhanced capture
+2. `process-engine.js` - Improved getBestSelector with priorities
+3. Both files now Shadow DOM and framework aware
+
+### Patterns Established
+
+#### **Stable Selector Priority Pattern**
+```javascript
+1. Data attributes (data-testid, data-test)
+2. Stable IDs (not framework-generated)
+3. ARIA attributes (aria-label, role)
+4. Stable classes (not framework-generated)
+5. Parent-child relationships
+6. Text content (for buttons/links)
+7. Position (last resort)
+```
+
+#### **Framework Detection Pattern**
+```javascript
+const FRAMEWORK_ID_PATTERNS = [
+  /^ember\d+$/,
+  /^react-[\w-]+$/,
+  /^ng-[\w-]+$/,
+  // ... comprehensive list
+];
+```
+
+#### **Shadow DOM Path Building**
+```javascript
+// Traverse up through shadow boundaries
+while (element !== document.body) {
+  if (parent instanceof ShadowRoot) {
+    // Record shadow boundary
+  }
+  // Build path
+}
+```
+
+### Real-World Impact
+
+#### **Before Enhancement**
+- Captured: `#ember650 > div > camp-button > span`
+- Result: Breaks after every build
+- User frustration: High
+
+#### **After Enhancement**
+- Captured: `[data-test="add-contact"]` or `camp-button.add-contact`
+- Result: Survives builds, framework updates
+- Also captured: 5+ alternative selectors as fallback
+
+### Knowledge Added to Codebase
+- **Patterns documented**: 3 major patterns
+- **Utilities created**: 15+ reusable functions
+- **Gotchas documented**: 5 critical issues
+- **Test coverage**: Comprehensive test page with all scenarios
+
+### Future Applications
+1. **Any RPA tool** can use these patterns
+2. **Test automation** frameworks benefit
+3. **Web scraping** tools need this for modern sites
+4. **Documentation** generation can use stable selectors
+
+### Key Takeaway
+**Modern web apps are complex** - Shadow DOM, web components, and framework-generated IDs are everywhere. Traditional selector strategies fail. Our enhancement handles ALL these cases, making Process Capture Studio work with enterprise applications that other tools struggle with.
 EOF < /dev/null

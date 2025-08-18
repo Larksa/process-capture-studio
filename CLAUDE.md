@@ -120,6 +120,16 @@ The **Global Event Buffer** in `capture-service.js` is the single source of trut
 - Page URL and title
 - Session state (cookies, localStorage)
 
+### IMPORTANT: Browser Portability
+**Chromium is ONLY for capture - exported code runs in ANY browser!**
+- Capture uses Chromium for consistency
+- Exports use universal DOM selectors that work in Chrome, Edge, Firefox, Safari
+- Just change one line in exported code to switch browsers:
+  - Playwright: `chromium.launch()` → `firefox.launch()` or `webkit.launch()`
+  - Selenium: `.forBrowser('chrome')` → `.forBrowser('edge')` or `.forBrowser('firefox')`
+- Sessions (cookies) are portable across all Chromium-based browsers
+- **No vendor lock-in** - capture once, run anywhere!
+
 ### 2. System Events (via uiohook-napi)
 - Global keystrokes and mouse clicks
 - Application context (active window)

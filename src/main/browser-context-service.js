@@ -1,9 +1,11 @@
 /**
  * Browser Context Service
  * Captures full DOM context from running browsers using Chrome DevTools Protocol
+ * Enhanced with Shadow DOM support and framework ID detection
  */
 
 const { chromium } = require('playwright');
+const shadowDOMUtils = require('./shadow-dom-utils');
 
 class BrowserContextService {
   constructor() {
@@ -13,66 +15,9 @@ class BrowserContextService {
     this.isConnected = false;
   }
 
-  /**
-   * Connect to an existing Chrome/Edge instance via CDP
-   * Chrome must be running with --remote-debugging-port=9222
-   */
-  async connectToExistingBrowser() {
-    const addresses = [
-      'http://127.0.0.1:9222',  // Try IPv4 first (more common)
-      'http://localhost:9222',   // Then localhost (might resolve to IPv6)
-      'http://[::1]:9222'        // Finally try IPv6 explicitly
-    ];
-    
-    for (const address of addresses) {
-      console.log(`[BrowserService] Attempting CDP connection to ${address}`);
-      
-      try {
-        // Try to connect to Chrome DevTools Protocol
-        console.log('[BrowserService] Calling chromium.connectOverCDP...');
-        this.browser = await chromium.connectOverCDP(address);
-        this.isConnected = true;
-        console.log(`[BrowserService] Successfully connected to Chrome via CDP at ${address}`);
-      
-        // Get all contexts (browser windows)
-        const contexts = this.browser.contexts();
-        console.log(`[BrowserService] Found ${contexts.length} browser contexts`);
-        
-        if (contexts.length > 0) {
-          // Get all pages from first context
-          const pages = await contexts[0].pages();
-          console.log(`[BrowserService] Found ${pages.length} pages in first context`);
-          
-          if (pages.length > 0) {
-            this.activePage = pages[0];
-            const pageUrl = await this.activePage.url();
-            const pageTitle = await this.activePage.title();
-            console.log(`[BrowserService] Set active page: URL=${pageUrl}, Title=${pageTitle}`);
-            
-            // Start monitoring pages
-            await this.monitorPages();
-            console.log('[BrowserService] Page monitoring started');
-          } else {
-            console.warn('[BrowserService] No pages found in browser context');
-          }
-        } else {
-          console.warn('[BrowserService] No browser contexts found');
-        }
-        
-        console.log('[BrowserService] Connected to existing browser via CDP successfully');
-        return true;
-      } catch (error) {
-        console.log(`[BrowserService] Failed to connect to ${address}: ${error.message}`);
-        // Continue to next address
-      }
-    }
-    
-    // If we get here, all connection attempts failed
-    console.log('[BrowserService] All CDP connection attempts failed');
-    console.log('[BrowserService] Make sure Chrome is running with: --remote-debugging-port=9222');
-    this.isConnected = false;
-    return false;
-  }
+  // REMOVED: connectToExistingBrowser method
+  // The app now uses only Playwright's internal browser to avoid port conflicts
+  // This is more reliable and doesn't require users to start Chrome with special flags
 
   /**
    * Launch a new browser instance for testing/fallback
@@ -168,8 +113,237 @@ class BrowserContextService {
         // Don't return null, still try to find element
       }
       
-      console.log('[BrowserService] Executing page.evaluate to find element...');
+      console.log('[BrowserService] Executing page.evaluate to find element with Shadow DOM support...');
       const element = await this.activePage.evaluate(({ x, y, scrollX, scrollY }) => {
+        // Import shadow DOM utilities inline (they need to run in browser context)
+        const FRAMEWORK_ID_PATTERNS = [
+          /^ember\d+$/,
+          /^react-[\w-]+$/,
+          /^ng-[\w-]+$/,
+          /_ngcontent-[\w-]+$/,
+          /^data-v-[\w]+$/,
+          /^aura-pos-\d+$/,
+          /^j_id\d+:/,
+          /^gsft_[\w]+$/,
+          /^ext-gen\d+$/,
+          /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i
+        ];
+        
+        const WEB_COMPONENT_PATTERNS = {
+          'vaadin-': 'vaadin',
+          'mwc-': 'material-web-components',
+          'sl-': 'shoelace',
+          'ion-': 'ionic',
+          'lightning-': 'salesforce-lightning',
+          'camp-': 'custom'
+        };
+        
+        function isFrameworkGeneratedId(id) {
+          if (!id) return false;
+          return FRAMEWORK_ID_PATTERNS.some(pattern => pattern.test(id));
+        }
+        
+        function isFrameworkClass(className) {
+          if (!className) return false;
+          const patterns = [/^ng-/, /^v-/, /^ember-/, /^react-/, /^css-[\w]+$/, /^sc-[\w]+$/];
+          return patterns.some(pattern => pattern.test(className));
+        }
+        
+        function detectShadowDOM(elem) {
+          let current = elem;
+          while (current && current !== document) {
+            if (current.parentNode && current.parentNode instanceof ShadowRoot) {
+              return {
+                isInShadowDOM: true,
+                shadowRoot: current.parentNode,
+                shadowHost: current.parentNode.host,
+                mode: current.parentNode.mode
+              };
+            }
+            current = current.parentNode || current.host;
+          }
+          return { isInShadowDOM: false };
+        }
+        
+        function getShadowPath(elem) {
+          const path = [];
+          let current = elem;
+          let depth = 0;
+          
+          while (current && current !== document.body && depth < 20) {
+            const parent = current.parentNode;
+            
+            if (parent && parent instanceof ShadowRoot) {
+              const hostElement = parent.host;
+              path.unshift({
+                type: 'shadow',
+                host: hostElement.tagName.toLowerCase(),
+                hostSelector: generateStableSelector(hostElement),
+                selector: generateStableSelector(current, parent),
+                shadowRoot: true,
+                mode: parent.mode,
+                depth: depth
+              });
+              current = hostElement;
+            } else if (current !== elem) {
+              path.unshift({
+                type: 'light',
+                selector: generateStableSelector(current),
+                shadowRoot: false,
+                depth: depth
+              });
+              current = current.parentElement;
+            } else {
+              current = current.parentElement;
+            }
+            depth++;
+          }
+          
+          return path;
+        }
+        
+        function generateStableSelector(element, root = document) {
+          if (!element) return null;
+          
+          // Try data attributes first
+          if (element.dataset) {
+            if (element.dataset.testid) return `[data-testid="${element.dataset.testid}"]`;
+            if (element.dataset.test) return `[data-test="${element.dataset.test}"]`;
+            if (element.dataset.automationId) return `[data-automation-id="${element.dataset.automationId}"]`;
+          }
+          
+          // Try ID if not framework-generated
+          if (element.id && !isFrameworkGeneratedId(element.id)) {
+            return `#${element.id}`;
+          }
+          
+          // Try unique attributes
+          const uniqueAttrs = ['name', 'aria-label', 'role', 'type'];
+          for (const attr of uniqueAttrs) {
+            const value = element.getAttribute(attr);
+            if (value) {
+              const selector = `${element.tagName.toLowerCase()}[${attr}="${value}"]`;
+              const matches = root.querySelectorAll(selector);
+              if (matches.length === 1) {
+                return selector;
+              }
+            }
+          }
+          
+          // Try stable classes
+          if (element.className && typeof element.className === 'string') {
+            const classes = element.className.split(' ')
+              .filter(cls => cls && !isFrameworkClass(cls))
+              .slice(0, 2);
+            
+            if (classes.length > 0) {
+              return `${element.tagName.toLowerCase()}.${classes.join('.')}`;
+            }
+          }
+          
+          return element.tagName.toLowerCase();
+        }
+        
+        function cleanFrameworkSelector(selector) {
+          if (!selector) return selector;
+          
+          let cleaned = selector;
+          cleaned = cleaned.replace(/#ember\d+/g, '');
+          cleaned = cleaned.replace(/#react-[\w-]+/g, '');
+          cleaned = cleaned.replace(/#ng-[\w-]+/g, '');
+          cleaned = cleaned.replace(/\.ng-[\w-]+/g, '');
+          cleaned = cleaned.replace(/\.ember-[\w-]+/g, '');
+          cleaned = cleaned.replace(/\s+>/g, ' >');
+          cleaned = cleaned.replace(/>\s+/g, '> ');
+          cleaned = cleaned.replace(/^\s*>\s*/, '');
+          cleaned = cleaned.replace(/\s*>\s*$/, '');
+          
+          return cleaned.trim();
+        }
+        
+        function detectWebComponent(elem) {
+          const tagName = elem.tagName.toLowerCase();
+          
+          if (!tagName.includes('-')) {
+            return { isWebComponent: false };
+          }
+          
+          for (const [prefix, framework] of Object.entries(WEB_COMPONENT_PATTERNS)) {
+            if (tagName.startsWith(prefix)) {
+              return {
+                isWebComponent: true,
+                framework,
+                tagName,
+                hasOpenShadowRoot: !!elem.shadowRoot
+              };
+            }
+          }
+          
+          return {
+            isWebComponent: true,
+            framework: 'custom',
+            tagName,
+            hasOpenShadowRoot: !!elem.shadowRoot
+          };
+        }
+        
+        function generateAlternativeSelectors(elem, shadowPath) {
+          const alternatives = [];
+          
+          // Data attributes
+          if (elem.dataset) {
+            Object.entries(elem.dataset).forEach(([key, value]) => {
+              if (value) {
+                const attrName = key.replace(/([A-Z])/g, '-$1').toLowerCase();
+                alternatives.push(`[data-${attrName}="${value}"]`);
+              }
+            });
+          }
+          
+          // ARIA attributes
+          ['aria-label', 'role'].forEach(attr => {
+            const value = elem.getAttribute(attr);
+            if (value) {
+              alternatives.push(`[${attr}="${value}"]`);
+            }
+          });
+          
+          // Parent + child
+          if (elem.parentElement) {
+            const parentSelector = generateStableSelector(elem.parentElement);
+            if (parentSelector) {
+              alternatives.push(`${parentSelector} > ${elem.tagName.toLowerCase()}`);
+            }
+          }
+          
+          // Text content
+          if (elem.textContent && ['BUTTON', 'A'].includes(elem.tagName)) {
+            const text = elem.textContent.trim().substring(0, 30);
+            if (text) {
+              alternatives.push(`${elem.tagName.toLowerCase()}:has-text("${text}")`);
+            }
+          }
+          
+          return [...new Set(alternatives.filter(Boolean))];
+        }
+        
+        function detectEnterpriseFramework() {
+          if (document.querySelector('force-app, lightning-app')) {
+            return 'salesforce-lightning';
+          }
+          if (document.querySelector('vaadin-app-layout, vaadin-grid')) {
+            return 'vaadin';
+          }
+          if (window.NOW || document.querySelector('[glide-field]')) {
+            return 'servicenow';
+          }
+          if (document.querySelector('[data-automation-id]')) {
+            return 'workday';
+          }
+          return null;
+        }
+
+        const element = await this.activePage.evaluate(({ x, y, scrollX, scrollY }) => {
         // Add scroll offset to get the correct element
         const adjustedX = x + scrollX;
         const adjustedY = y + scrollY;
@@ -209,20 +383,66 @@ class BrowserContextService {
           return null;
         }
 
-        // Build multiple selector strategies
+        // Detect Shadow DOM and web component information
+        const shadowInfo = detectShadowDOM(elem);
+        const shadowPath = getShadowPath(elem);
+        const webComponentInfo = detectWebComponent(elem);
+        const enterpriseFramework = detectEnterpriseFramework();
+        
+        // Get parent element information
+        const parentElement = elem.parentElement;
+        const parentClasses = parentElement ? 
+          (parentElement.className ? parentElement.className.split(' ').filter(cls => cls && !isFrameworkClass(cls)) : []) : [];
+        
+        // Build comprehensive selector strategies
         const selectors = {
+          // Original fields (keep for compatibility)
           id: elem.id ? `#${elem.id}` : null,
           className: elem.className ? `.${elem.className.split(' ').join('.')}` : null,
           tagName: elem.tagName.toLowerCase(),
           xpath: null,
           css: null,
           text: elem.textContent?.trim().substring(0, 100),
-          attributes: {}
+          attributes: {},
+          
+          // NEW: Framework-aware selectors
+          stableCSS: null,
+          cssWithoutFrameworkIds: null,
+          parentSelector: parentElement ? generateStableSelector(parentElement) : null,
+          parentClasses: parentClasses,
+          parentTag: parentElement ? parentElement.tagName.toLowerCase() : null,
+          
+          // NEW: Shadow DOM support
+          shadowPath: shadowPath,
+          isInShadowDOM: shadowInfo.isInShadowDOM,
+          shadowRootMode: shadowInfo.isInShadowDOM ? shadowInfo.mode : null,
+          componentName: webComponentInfo.isWebComponent ? webComponentInfo.tagName : null,
+          shadowPierceSelector: null,
+          
+          // NEW: Enterprise & data attributes
+          enterpriseFramework: enterpriseFramework,
+          dataAttributes: {},
+          ariaLabel: elem.getAttribute('aria-label'),
+          role: elem.getAttribute('role'),
+          alternativeSelectors: [],
+          uniqueAttributes: {}
         };
 
-        // Get all attributes
+        // Get all attributes and separate data attributes
         for (let attr of elem.attributes) {
           selectors.attributes[attr.name] = attr.value;
+          
+          // Collect data attributes separately
+          if (attr.name.startsWith('data-')) {
+            const dataKey = attr.name.substring(5);
+            selectors.dataAttributes[dataKey] = attr.value;
+          }
+          
+          // Collect unique non-standard attributes
+          if (!['id', 'class', 'style', 'href', 'src', 'alt', 'title'].includes(attr.name) &&
+              !attr.name.startsWith('data-') && !attr.name.startsWith('aria-')) {
+            selectors.uniqueAttributes[attr.name] = attr.value;
+          }
         }
 
         // Generate XPath
@@ -248,9 +468,10 @@ class BrowserContextService {
           return parts.length ? `/${parts.join('/')}` : null;
         }
 
-        selectors.xpath = getXPath(elem);
+        // Generate XPath (note: doesn't work through Shadow DOM)
+        selectors.xpath = shadowInfo.isInShadowDOM ? null : getXPath(elem);
 
-        // Generate unique CSS selector
+        // Generate original CSS selector (with framework IDs)
         function getCSSSelector(element) {
           const path = [];
           while (element && element.nodeType === Node.ELEMENT_NODE) {
@@ -269,6 +490,28 @@ class BrowserContextService {
         }
 
         selectors.css = getCSSSelector(elem);
+        
+        // Generate stable CSS selector (without framework IDs)
+        selectors.stableCSS = generateStableSelector(elem);
+        
+        // Generate CSS without framework IDs
+        selectors.cssWithoutFrameworkIds = cleanFrameworkSelector(selectors.css);
+        
+        // Generate alternative selectors
+        selectors.alternativeSelectors = generateAlternativeSelectors(elem, shadowPath);
+        
+        // Generate shadow pierce selector for non-Playwright tools
+        if (shadowInfo.isInShadowDOM && shadowPath.length > 0) {
+          const pierceSelectors = [];
+          for (const step of shadowPath) {
+            if (step.shadowRoot) {
+              pierceSelectors.push(step.hostSelector);
+            }
+          }
+          if (pierceSelectors.length > 0) {
+            selectors.shadowPierceSelector = pierceSelectors.join(' >>> ') + ' >>> ' + selectors.stableCSS;
+          }
+        }
 
         // Get additional context
         const rect = elem.getBoundingClientRect();

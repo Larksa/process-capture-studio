@@ -37,17 +37,29 @@
                     <button id="start-capture" class="btn btn-primary">Start Capture</button>
                     <button id="pause-capture" class="btn" disabled>Pause</button>
                     <button id="stop-capture" class="btn" disabled>Stop</button>
+                    <!-- Browser connection status and control -->
+                    <div id="browser-status" class="browser-status" title="Browser connection status">
+                        <span class="status-icon">🔴</span>
+                        <span class="status-text">Browser: Disconnected</span>
+                    </div>
+                    <button id="connect-browser" class="btn btn-browser" title="Connect to browser for enhanced capture">🌐 Connect Browser</button>
+                    <button id="browser-help" class="btn btn-info" title="How to connect to your browser" style="padding: 5px 10px; font-size: 12px;">❓</button>
                     <!-- Session capture for authenticated replay -->
-                    <button id="capture-session" class="btn" title="Capture browser session for authenticated replay">🍪 Capture Session</button>
+                    <button id="capture-session" class="btn" title="Capture browser session for authenticated replay" style="display:none;">🍪 Capture Session</button>
+                    <!-- Authentication marking (appears after session capture) -->
+                    <button id="mark-auth-steps" class="btn btn-special" title="Mark login steps to skip on replay" style="display:none;">🔐 Mark Login Steps</button>
+                    <button id="set-replay-start" class="btn btn-special" title="Set where replay should start" style="display:none;">▶️ Set Replay Start</button>
                     <button id="clear-session" class="btn btn-warning" title="Clear stored session">❌ Clear Session</button>
                     <button id="save-process" class="btn btn-success" title="Save current process">💾 Save</button>
                     <button id="clear-capture" class="btn btn-danger" title="Clear all captured data">🗑️ Clear</button>
+                    <button id="create-mapping" class="btn btn-special" title="Map CSV/Excel to Form Fields">🔗 Map Fields</button>
+                    <button id="test-browser" class="btn btn-debug" title="Test browser context capture" style="display:none;">🧪 Test Browser</button>
                     <button id="refresh-app" class="btn" title="Refresh the application">🔄 Refresh</button>
                     <div class="capture-indicator" id="capture-status">
                         <span class="status-dot"></span>
                         <span class="status-text">Ready</span>
                     </div>
-                    <div class="browser-status" id="browser-status" style="margin-left: 10px; font-size: 12px;">
+                    <div class="browser-context-status" style="margin-left: 10px; font-size: 12px;">
                         <span id="browser-status-text">Context: Not Connected</span>
                     </div>
                     <div class="session-indicator" id="session-indicator" style="margin-left: 10px; font-size: 12px; display: none;">
@@ -311,6 +323,12 @@
                     <span class="format-desc">Enhanced JSON with replay methods</span>
                 </button>
                 
+                <button class="export-option" data-format="field-mapping">
+                    <span class="format-icon">🔗</span>
+                    <span class="format-name">Field Mapping</span>
+                    <span class="format-desc">CSV/Excel to form field mappings</span>
+                </button>
+                
                 <button class="export-option" data-format="raw-log">
                     <span class="format-icon">📋</span>
                     <span class="format-name">Raw Log</span>
@@ -386,10 +404,42 @@
     <script src="js/terminal-renderer.js"></script>
     <script src="js/activity-tracker.js"></script>
     <!-- Canvas builder removed - replaced by replay controller -->
+    <!-- Field Mapping Overlay -->
+    <div id="mapping-overlay" class="mapping-overlay hidden">
+        <div class="mapping-container">
+            <div class="mapping-header">
+                <h3>🔗 Field Mapping Mode</h3>
+                <button id="exit-mapping" class="btn-close">✕</button>
+            </div>
+            
+            <div class="mapping-instructions">
+                <p id="mapping-prompt" class="mapping-prompt">
+                    Click on a CSV/Excel column to start mapping...
+                </p>
+                <div id="mapping-status" class="mapping-status"></div>
+            </div>
+            
+            <div class="mapping-list">
+                <h4>Created Mappings</h4>
+                <div id="mappings-display" class="mappings-display">
+                    <div class="no-mappings">No mappings created yet</div>
+                </div>
+            </div>
+            
+            <div class="mapping-actions">
+                <button id="capture-session" class="btn btn-special" title="Capture browser cookies and session state">🔐 Capture Session</button>
+                <button id="test-mapping" class="btn btn-secondary" disabled>Test with First Row</button>
+                <button id="clear-mappings" class="btn btn-warning" disabled>Clear All</button>
+                <button id="done-mapping" class="btn btn-primary">Done</button>
+            </div>
+        </div>
+    </div>
+
     <!-- <script src="js/canvas-builder.js"></script> -->
     <script src="js/replay-controller.js"></script>
     <script src="js/workflow-analyzer.js"></script>
     <script src="js/chat-guide.js"></script>
+    <script src="js/mapping-controller.js"></script>
     <script src="js/app.js"></script>
 </body>
 </html>

@@ -101,6 +101,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     onBrowserStatusUpdate: (callback) => {
         ipcRenderer.on('browser:status-update', (event, data) => callback(data));
     },
+    onBrowserConnected: (callback) => {
+        ipcRenderer.on('browser:connected', (event, data) => callback(data));
+    },
     
     // Session management
     captureSession: () => ipcRenderer.invoke('session:capture'),
@@ -130,6 +133,20 @@ contextBridge.exposeInMainWorld('electronAPI', {
     },
     onReplayLog: (callback) => {
         ipcRenderer.on('replay:log', (event, data) => callback(data));
+    },
+    
+    // Field Mapping functionality
+    startMappingMode: (options) => ipcRenderer.invoke('mapping:start', options),
+    stopMappingMode: () => ipcRenderer.invoke('mapping:stop'),
+    processMappingClick: (event) => ipcRenderer.invoke('mapping:process-click', event),
+    getMappings: () => ipcRenderer.invoke('mapping:get-mappings'),
+    removeMapping: (mappingId) => ipcRenderer.invoke('mapping:remove', mappingId),
+    clearMappings: () => ipcRenderer.invoke('mapping:clear'),
+    storeMappingsForExport: (mappings) => ipcRenderer.invoke('mapping:store-for-export', mappings),
+    
+    // Field Mapping event listeners
+    onMappingEvent: (callback) => {
+        ipcRenderer.on('mapping:event', (event, data) => callback(data));
     }
 });
 

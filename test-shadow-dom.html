@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Shadow DOM & Framework ID Test Page</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        .section {
+            border: 1px solid #ccc;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 8px;
+        }
+        h2 {
+            color: #333;
+            border-bottom: 2px solid #007bff;
+            padding-bottom: 10px;
+        }
+        button, input {
+            padding: 10px 15px;
+            margin: 5px;
+            border-radius: 4px;
+            border: 1px solid #ddd;
+        }
+        button {
+            background: #007bff;
+            color: white;
+            cursor: pointer;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+        .framework-ids {
+            background: #ffe6e6;
+        }
+        .stable-ids {
+            background: #e6ffe6;
+        }
+    </style>
+</head>
+<body>
+    <h1>🧪 Process Capture Studio - Shadow DOM & Framework ID Test Page</h1>
+    
+    <!-- Section 1: Framework-generated IDs (Bad) -->
+    <div class="section framework-ids">
+        <h2>❌ Framework-Generated IDs (Should NOT use these)</h2>
+        <p>These elements have framework-generated IDs that change on every build:</p>
+        
+        <!-- Ember style -->
+        <button id="ember650" class="btn-primary create">Ember Button (Bad ID)</button>
+        
+        <!-- React style -->
+        <input id="react-select-1" type="text" placeholder="React Input (Bad ID)" />
+        
+        <!-- Angular style -->
+        <div id="ng-content-abc-123" class="ng-star-inserted">
+            <button _ngcontent-abc-123="">Angular Button (Bad ID)</button>
+        </div>
+        
+        <!-- Vue style -->
+        <span data-v-7ba5bd90="" id="vue-component-1">Vue Component (Bad ID)</span>
+        
+        <!-- Salesforce style -->
+        <button id="aura-pos-1" class="slds-button">Salesforce Button (Bad ID)</button>
+    </div>
+    
+    <!-- Section 2: Stable Selectors (Good) -->
+    <div class="section stable-ids">
+        <h2>✅ Stable Selectors (Should use these)</h2>
+        <p>These elements have stable attributes that don't change:</p>
+        
+        <!-- Data attributes (BEST) -->
+        <button data-testid="submit-button" data-test="submit" class="btn-submit">
+            Submit (Has data-testid)
+        </button>
+        
+        <input data-automation-id="email-field" type="email" placeholder="Email (Has data-automation-id)" />
+        
+        <!-- Stable IDs -->
+        <button id="save-button" class="btn-save">Save (Stable ID)</button>
+        
+        <!-- ARIA attributes -->
+        <button aria-label="Delete item" role="button" class="btn-delete">
+            🗑️ Delete (Has aria-label)
+        </button>
+        
+        <!-- Unique name attribute -->
+        <input name="username" type="text" placeholder="Username (Has name)" />
+    </div>
+    
+    <!-- Section 3: Shadow DOM Components -->
+    <div class="section">
+        <h2>🔮 Shadow DOM Web Components</h2>
+        <p>These are web components with Shadow DOM (Playwright auto-pierces these):</p>
+        
+        <!-- Custom Shadow DOM Component -->
+        <custom-button id="custom-btn-1"></custom-button>
+        
+        <!-- Vaadin-style component -->
+        <vaadin-button theme="primary" data-testid="vaadin-submit">Submit (Vaadin)</vaadin-button>
+        
+        <!-- Material Web Component -->
+        <mwc-button raised data-test="material-button">Material Button</mwc-button>
+        
+        <!-- Salesforce Lightning component -->
+        <lightning-button variant="brand" label="Lightning Button"></lightning-button>
+    </div>
+    
+    <!-- Section 4: Mixed Scenarios -->
+    <div class="section">
+        <h2>🎭 Mixed Scenarios (Framework ID + Good Attributes)</h2>
+        <p>These have both bad framework IDs and good stable attributes:</p>
+        
+        <!-- Has bad ID but good data attribute -->
+        <button id="ember789" data-testid="mixed-button" class="create">
+            Mixed Button (Should use data-testid, not #ember789)
+        </button>
+        
+        <!-- Has bad classes but good aria-label -->
+        <button class="ng-star-inserted css-1a2b3c" aria-label="Save document">
+            Save (Should use aria-label)
+        </button>
+        
+        <!-- Custom element with bad ID but good data attribute -->
+        <camp-button id="react-component-42" data-test="custom-action">
+            Custom Action (Should use data-test)
+        </camp-button>
+    </div>
+    
+    <!-- Section 5: ActiveCampaign-style elements -->
+    <div class="section">
+        <h2>🎯 ActiveCampaign-Style Elements</h2>
+        <camp-button class="contacts_index_subheader_add-contact ml10">
+            <span class="create">Add a contact</span>
+        </camp-button>
+        
+        <div id="ember650">
+            <div class="flex-shrink-0">
+                <camp-button data-test="add-contact-button" class="contacts_index_subheader_add-contact ml10">
+                    <span class="create">Add a contact (Better)</span>
+                </camp-button>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        // Define custom Shadow DOM components
+        class CustomButton extends HTMLElement {
+            constructor() {
+                super();
+                const shadow = this.attachShadow({ mode: 'open' });
+                
+                const button = document.createElement('button');
+                button.textContent = 'Shadow DOM Button';
+                button.style.cssText = 'padding: 10px; background: #28a745; color: white; border: none; border-radius: 4px; cursor: pointer;';
+                
+                button.addEventListener('click', () => {
+                    alert('Shadow DOM button clicked!');
+                });
+                
+                shadow.appendChild(button);
+            }
+        }
+        
+        class CampButton extends HTMLElement {
+            constructor() {
+                super();
+                // Camp buttons don't typically use Shadow DOM
+                // but we'll add click handling
+                this.addEventListener('click', () => {
+                    console.log('Camp button clicked:', this.getAttribute('data-test') || this.className);
+                });
+            }
+        }
+        
+        // Register custom elements
+        customElements.define('custom-button', CustomButton);
+        customElements.define('camp-button', CampButton);
+        
+        // Simulate other web components (without actual implementation)
+        ['vaadin-button', 'mwc-button', 'lightning-button'].forEach(tag => {
+            if (!customElements.get(tag)) {
+                customElements.define(tag, class extends HTMLElement {
+                    connectedCallback() {
+                        this.innerHTML = this.getAttribute('label') || this.textContent || tag;
+                        this.style.cssText = 'display: inline-block; padding: 10px; background: #6c757d; color: white; border-radius: 4px; cursor: pointer; margin: 5px;';
+                        this.addEventListener('click', () => {
+                            console.log(`${tag} clicked:`, this.getAttribute('data-testid') || this.getAttribute('data-test'));
+                        });
+                    }
+                });
+            }
+        });
+        
+        // Add click logging for all buttons
+        document.querySelectorAll('button, input, camp-button').forEach(elem => {
+            elem.addEventListener('click', (e) => {
+                const info = {
+                    id: elem.id || null,
+                    'data-testid': elem.getAttribute('data-testid'),
+                    'data-test': elem.getAttribute('data-test'),
+                    'aria-label': elem.getAttribute('aria-label'),
+                    classes: elem.className,
+                    tagName: elem.tagName.toLowerCase()
+                };
+                console.log('Element clicked:', info);
+            });
+        });
+        
+        console.log('Test page loaded. Click elements to test selector capture.');
+        console.log('Elements with red background have BAD framework IDs.');
+        console.log('Elements with green background have GOOD stable selectors.');
+    </script>
+</body>
+</html>

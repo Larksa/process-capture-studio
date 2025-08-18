@@ -442,6 +442,137 @@ class ProcessEngine {
     }
 
     /**
+     * Mark activities as authentication steps
+     * @param {Array} activityIds - Array of activity IDs to mark as authentication
+     */
+    markAsAuthentication(activityIds) {
+        if (!activityIds || !Array.isArray(activityIds)) {
+            console.warn('[ProcessEngine] Invalid activity IDs for authentication marking');
+            return false;
+        }
+        
+        console.log(`[ProcessEngine] Marking ${activityIds.length} activities as authentication steps`);
+        
+        let markedCount = 0;
+        activityIds.forEach(activityId => {
+            // Find the node with matching timestamp or ID
+            for (const [nodeId, node] of this.process.nodes) {
+                if (node.metadata?.timestamp === activityId || 
+                    node.id === activityId ||
+                    node.rawData?.timestamp === activityId) {
+                    
+                    // Mark as authentication step
+                    if (!node.metadata) node.metadata = {};
+                    node.metadata.isAuthenticationStep = true;
+                    
+                    // Store in process metadata
+                    if (!this.process.metadata.authenticationSteps) {
+                        this.process.metadata.authenticationSteps = [];
+                    }
+                    if (!this.process.metadata.authenticationSteps.includes(nodeId)) {
+                        this.process.metadata.authenticationSteps.push(nodeId);
+                    }
+                    
+                    this.process.nodes.set(nodeId, node);
+                    markedCount++;
+                    console.log(`[ProcessEngine] Marked node ${nodeId} as authentication step`);
+                    break;
+                }
+            }
+        });
+        
+        console.log(`[ProcessEngine] Successfully marked ${markedCount} authentication steps`);
+        this.hasUnsavedChanges = true;
+        
+        if (this.autoSave) {
+            this.saveToStorage();
+        }
+        
+        return markedCount > 0;
+    }
+    
+    /**
+     * Set the replay start point (first non-auth step)
+     * @param {string} activityId - The activity ID where replay should start
+     */
+    setReplayStartPoint(activityId) {
+        if (!activityId) {
+            console.warn('[ProcessEngine] Invalid activity ID for replay start point');
+            return false;
+        }
+        
+        console.log(`[ProcessEngine] Setting replay start point at activity ${activityId}`);
+        
+        // Find the node
+        for (const [nodeId, node] of this.process.nodes) {
+            if (node.metadata?.timestamp === activityId || 
+                node.id === activityId ||
+                node.rawData?.timestamp === activityId) {
+                
+                // Mark as replay start point
+                if (!node.metadata) node.metadata = {};
+                node.metadata.isReplayStartPoint = true;
+                
+                // Store in process metadata
+                this.process.metadata.replayStartPoint = nodeId;
+                
+                this.process.nodes.set(nodeId, node);
+                console.log(`[ProcessEngine] Set node ${nodeId} as replay start point`);
+                
+                this.hasUnsavedChanges = true;
+                
+                if (this.autoSave) {
+                    this.saveToStorage();
+                }
+                
+                return true;
+            }
+        }
+        
+        console.warn('[ProcessEngine] Could not find node for replay start point');
+        return false;
+    }
+    
+    /**
+     * Get all authentication step node IDs
+     */
+    getAuthenticationSteps() {
+        return this.process.metadata.authenticationSteps || [];
+    }
+    
+    /**
+     * Get the replay start point node ID
+     */
+    getReplayStartPoint() {
+        return this.process.metadata.replayStartPoint || null;
+    }
+    
+    /**
+     * Clear authentication markings
+     */
+    clearAuthenticationMarkings() {
+        // Clear from nodes
+        for (const [nodeId, node] of this.process.nodes) {
+            if (node.metadata) {
+                delete node.metadata.isAuthenticationStep;
+                delete node.metadata.isReplayStartPoint;
+                this.process.nodes.set(nodeId, node);
+            }
+        }
+        
+        // Clear from process metadata
+        delete this.process.metadata.authenticationSteps;
+        delete this.process.metadata.replayStartPoint;
+        
+        console.log('[ProcessEngine] Cleared all authentication markings');
+        this.hasUnsavedChanges = true;
+        
+        if (this.autoSave) {
+            this.saveToStorage();
+        }
+    }
+
+    /**
      * Get automation-ready export
      */
     exportForAutomation(format = 'json') {
@@ -523,6 +654,8 @@ class ProcessEngine {
                 return this.generatePlainText();
             case 'json-replay':
                 return this.generateJSONReplayStrategy(exportData);
+            case 'field-mapping':
+                return this.generateFieldMappingExport(exportData);
             default:
                 console.log('[Export] Returning raw export data');
                 return JSON.stringify(exportData, null, 2);
@@ -1240,7 +1373,7 @@ execute${this.toCamelCase(this.process.name)}().catch(console.error);
     }
 
     /**
-     * Get best selector for an element
+     * Get best selector for an element with Shadow DOM and framework awareness
      */
     getBestSelector(element) {
         if (!element) {
@@ -1257,24 +1390,85 @@ execute${this.toCamelCase(this.process.name)}().catch(console.error);
         // Log element structure for debugging
         console.log('[Export] getBestSelector: Element structure:', {
             hasSelectors: !!element.selectors,
-            hasSelector: !!element.selector,
-            hasId: !!element.id,
-            selectorsKeys: element.selectors ? Object.keys(element.selectors) : [],
-            elementKeys: Object.keys(element)
+            isInShadowDOM: element.selectors?.isInShadowDOM,
+            hasStableCSS: !!element.selectors?.stableCSS,
+            hasDataAttributes: Object.keys(element.selectors?.dataAttributes || {}).length > 0,
+            enterpriseFramework: element.selectors?.enterpriseFramework,
+            alternativeSelectorsCount: element.selectors?.alternativeSelectors?.length || 0
         });
         
-        // Priority: ID > data-testid > name > aria-label > CSS > text > XPath
-        // Handle both old and new element formats
-        if (element?.selectors?.id) {
-            console.log('[Export] Using ID selector:', element.selectors.id);
-            return element.selectors.id;
-        }
-        if (element?.id) {
-            console.log('[Export] Using element ID:', `#${element.id}`);
-            return `#${element.id}`;
+        // NEW Priority order with Shadow DOM awareness:
+        // 1. Data attributes (most stable, works across frameworks)
+        if (element?.selectors?.dataAttributes) {
+            // Prioritize common test attributes
+            const testAttrs = ['testid', 'test', 'automation-id', 'automation', 'qa', 'cy'];
+            for (const attr of testAttrs) {
+                if (element.selectors.dataAttributes[attr]) {
+                    const selector = `[data-${attr}="${element.selectors.dataAttributes[attr]}"]`;
+                    console.log('[Export] Using data attribute selector:', selector);
+                    return selector;
+                }
+            }
+            
+            // Use any other data attribute
+            const dataKeys = Object.keys(element.selectors.dataAttributes);
+            if (dataKeys.length > 0) {
+                const key = dataKeys[0];
+                const selector = `[data-${key}="${element.selectors.dataAttributes[key]}"]`;
+                console.log('[Export] Using data attribute selector:', selector);
+                return selector;
+            }
         }
         
-        // Check for data-testid (common in modern apps)
+        // 2. Stable CSS (framework IDs removed)
+        if (element?.selectors?.stableCSS) {
+            console.log('[Export] Using stable CSS selector:', element.selectors.stableCSS);
+            return element.selectors.stableCSS;
+        }
+        
+        // 3. Check for ID only if not framework-generated
+        if (element?.selectors?.id) {
+            // Check if ID looks framework-generated
+            const id = element.selectors.id.replace('#', '');
+            const frameworkPatterns = [/^ember\d+$/, /^react-/, /^ng-/, /^ext-gen\d+$/];
+            const isFrameworkId = frameworkPatterns.some(pattern => pattern.test(id));
+            
+            if (!isFrameworkId) {
+                console.log('[Export] Using non-framework ID:', element.selectors.id);
+                return element.selectors.id;
+            } else {
+                console.log('[Export] Skipping framework-generated ID:', element.selectors.id);
+            }
+        }
+        
+        // 4. ARIA attributes (good for accessibility and stability)
+        if (element?.selectors?.ariaLabel) {
+            const selector = `[aria-label="${element.selectors.ariaLabel}"]`;
+            console.log('[Export] Using ARIA label selector:', selector);
+            return selector;
+        }
+        
+        // 5. Try alternative selectors
+        if (element?.selectors?.alternativeSelectors?.length > 0) {
+            const selector = element.selectors.alternativeSelectors[0];
+            console.log('[Export] Using alternative selector:', selector);
+            return selector;
+        }
+        
+        // 6. CSS without framework IDs
+        if (element?.selectors?.cssWithoutFrameworkIds) {
+            console.log('[Export] Using cleaned CSS selector:', element.selectors.cssWithoutFrameworkIds);
+            return element.selectors.cssWithoutFrameworkIds;
+        }
+        
+        // 7. Parent + tag combination
+        if (element?.selectors?.parentSelector && element?.selectors?.tagName) {
+            const selector = `${element.selectors.parentSelector} > ${element.selectors.tagName}`;
+            console.log('[Export] Using parent-child selector:', selector);
+            return selector;
+        }
+        
+        // Legacy fallback for old format
         if (element?.selectors?.attributes?.['data-testid']) {
             const selector = `[data-testid="${element.selectors.attributes['data-testid']}"]`;
             console.log('[Export] Using data-testid:', selector);
@@ -1346,6 +1540,23 @@ execute${this.toCamelCase(this.process.name)}().catch(console.error);
      * Convert a single node to Playwright code
      */
     nodeToPlaywrightCode(node) {
+        // Skip authentication steps if we have a session
+        if (this.process.sessionState && node.metadata?.isAuthenticationStep) {
+            return `    // 🔐 Skipping authentication step (session loaded): ${node.description || node.title || 'Login'}\n\n`;
+        }
+        
+        // Add replay start marker if this is the start point
+        if (node.metadata?.isReplayStartPoint) {
+            let code = `    // ▶️ REPLAY STARTS HERE (after authentication)\n`;
+            code += `    console.log('Starting replay from authenticated state...');\n\n`;
+            // Continue processing the node normally
+            return code + this.nodeToPlaywrightCodeInner(node);
+        }
+        
+        return this.nodeToPlaywrightCodeInner(node);
+    }
+    
+    nodeToPlaywrightCodeInner(node) {
         // Handle step nodes (from Step Boundary system)
         if (node.type === 'step') {
             return this.stepNodeToPlaywrightCode(node);
@@ -1387,6 +1598,20 @@ execute${this.toCamelCase(this.process.name)}().catch(console.error);
                 if (event.type === 'click') {
                     const selector = this.getBestSelector(event.element || event.selector);
                     if (selector) {
+                        // Add Shadow DOM comment if applicable
+                        if (event.element?.selectors?.isInShadowDOM) {
+                            code += `    // Shadow DOM component: ${event.element.selectors.componentName || 'web-component'}\n`;
+                            if (event.element.selectors.shadowRootMode === 'closed') {
+                                code += `    // Warning: Closed shadow root - selector may not work in all tools\n`;
+                            }
+                            code += `    // Playwright auto-pierces open shadow roots\n`;
+                        }
+                        
+                        // Add enterprise framework comment if detected
+                        if (event.element?.selectors?.enterpriseFramework) {
+                            code += `    // ${event.element.selectors.enterpriseFramework} component\n`;
+                        }
+                        
                         code += `    await page.waitForSelector('${selector}', { state: 'visible', timeout: 10000 });\n`;
                         code += `    await page.click('${selector}');\n`;
                         
@@ -1394,6 +1619,11 @@ execute${this.toCamelCase(this.process.name)}().catch(console.error);
                         const text = event.element?.text || event.element?.selectors?.text || event.text;
                         if (text) {
                             code += `    // Clicked: "${text.substring(0, 50)}${text.length > 50 ? '...' : ''}"\n`;
+                        }
+                        
+                        // Add alternative selectors as comments for debugging
+                        if (event.element?.selectors?.alternativeSelectors?.length > 0) {
+                            code += `    // Alternative selectors available: ${event.element.selectors.alternativeSelectors.length}\n`;
                         }
                         
                         // Track if this was an input field click
@@ -1871,10 +2101,33 @@ if __name__ == "__main__":
                     if (hasWebContext && event.element) {
                         const selector = this.getBestSelector(event.element);
                         if (selector) {
+                            // Add Shadow DOM warning for Python/Selenium
+                            if (event.element?.selectors?.isInShadowDOM) {
+                                code += `    # Warning: Element is in Shadow DOM - Selenium may need JavaScript execution\n`;
+                                code += `    # Component: ${event.element.selectors.componentName || 'web-component'}\n`;
+                                
+                                // Provide JavaScript fallback for Shadow DOM
+                                if (event.element.selectors.shadowPath?.length > 0) {
+                                    code += `    # Shadow DOM fallback:\n`;
+                                    code += `    # driver.execute_script("""\n`;
+                                    code += `    #   let element = document.querySelector('${event.element.selectors.shadowPath[0].hostSelector}');\n`;
+                                    code += `    #   if (element && element.shadowRoot) {\n`;
+                                    code += `    #     element = element.shadowRoot.querySelector('${selector}');\n`;
+                                    code += `    #     if (element) element.click();\n`;
+                                    code += `    #   }\n`;
+                                    code += `    # """)\n`;
+                                }
+                            }
+                            
                             // Use Selenium for web elements
                             if (selector.startsWith('#')) {
                                 code += `    element = WebDriverWait(driver, 10).until(\n`;
                                 code += `        EC.element_to_be_clickable((By.ID, '${selector.substring(1)}'))\n`;
+                                code += `    )\n`;
+                            } else if (selector.startsWith('[data-')) {
+                                // Handle data attributes
+                                code += `    element = WebDriverWait(driver, 10).until(\n`;
+                                code += `        EC.element_to_be_clickable((By.CSS_SELECTOR, '${selector}'))\n`;
                                 code += `    )\n`;
                             } else if (selector.startsWith('[name=')) {
                                 const name = selector.match(/\[name="(.+?)"\]/)?.[1];
@@ -2899,6 +3152,306 @@ ${Array.from(this.process.nodes.values()).map(node => `  - step: ${node.step}
         });
         
         return text;
+    }
+
+    /**
+     * Generate field mapping export for CSV/Excel to form automation
+     */
+    generateFieldMappingExport(exportData) {
+        console.log('[Export] Generating Field Mapping format');
+        
+        // Check if we have stored field mappings
+        const storedMappings = localStorage.getItem('field_mappings');
+        let fieldMappings = [];
+        
+        if (storedMappings) {
+            try {
+                fieldMappings = JSON.parse(storedMappings);
+            } catch (e) {
+                console.error('Failed to parse stored mappings:', e);
+            }
+        }
+        
+        // Check for captured session state
+        const storedSession = localStorage.getItem('field_mapping_session');
+        let sessionState = null;
+        
+        if (storedSession) {
+            try {
+                sessionState = JSON.parse(storedSession);
+                console.log('[Export] Including captured session state');
+            } catch (e) {
+                console.error('Failed to parse stored session:', e);
+            }
+        }
+        
+        // If no stored mappings, try to detect from captured events
+        if (fieldMappings.length === 0) {
+            fieldMappings = this.detectFieldMappingsFromEvents(exportData);
+        }
+        
+        // Extract form information from captured events
+        const formInfo = this.extractFormInformation(exportData);
+        
+        // Build the field mapping export
+        const mappingExport = {
+            version: '1.0',
+            created: new Date().toISOString(),
+            workflow_type: 'field_mapping',
+            
+            // Data source information
+            data_source: {
+                type: this.detectDataSourceType(exportData),
+                structure: this.detectDataStructure(exportData),
+                sample_data: this.extractSampleData(exportData)
+            },
+            
+            // Form destination information
+            destination: {
+                type: 'web_form',
+                url: formInfo.url,
+                form_identifier: formInfo.formId,
+                authentication_required: sessionState ? true : false
+            },
+            
+            // Session state for authenticated forms
+            sessionState: sessionState,
+            
+            // Field mappings with navigation
+            field_mappings: fieldMappings.map(mapping => ({
+                source_column: mapping.source?.header || mapping.source?.column || mapping.source?.display,
+                source_type: mapping.source?.type,
+                source_sample: mapping.source?.sampleValue,
+                destination_selector: mapping.destination?.selector,
+                destination_type: mapping.destination?.fieldType,
+                navigation_required: mapping.navigationSteps?.length > 0,
+                navigation_steps: mapping.navigationSteps?.map((step, idx) => ({
+                    sequence: idx + 1,
+                    action: step.action,
+                    element: step.element,
+                    timing: step.timestamp_offset || idx * 100  // Default 100ms between steps
+                })),
+                destination_label: mapping.destination?.label,
+                transformation: this.detectTransformation(mapping)
+            })),
+            
+            // Loop instructions for automation runners
+            loop_instructions: {
+                type: 'iterate_rows',
+                start_row: 2, // Skip header
+                batch_size: 1,
+                parallel: false,
+                continue_on_error: true,
+                
+                pre_iteration: formInfo.navigationSteps || [],
+                per_iteration: [
+                    { 
+                        action: 'fill_mapped_fields',
+                        note: 'Each field may require navigation steps as defined in field_mappings' 
+                    },
+                    { action: 'click', selector: formInfo.submitButton },
+                    { action: 'wait', for: 'success_indicator' }
+                ],
+                
+                navigation_mode: 'per_field', // Execute navigation steps for each field individually
+                navigation_reset: 'after_submit', // Reset to form start after each submission
+                
+                error_handling: {
+                    on_field_error: 'log_and_skip',
+                    on_navigation_error: 'retry_with_delay',
+                    on_submit_error: 'retry_once',
+                    on_validation_error: 'mark_for_review'
+                }
+            },
+            
+            // Execution hints
+            execution_hints: {
+                recommended_delay: 500,
+                requires_human_verification: false,
+                supports_bulk_api: false,
+                max_parallel: 1,
+                authentication: exportData.sessionState ? 'session_state_provided' : 'none'
+            },
+            
+            // Statistics
+            metadata: {
+                total_mappings: fieldMappings.length,
+                captured_events: exportData.statistics?.totalEvents || 0,
+                form_submissions_captured: this.countFormSubmissions(exportData),
+                confidence: fieldMappings.length > 0 ? 'high' : 'low'
+            }
+        };
+        
+        // Include session state if available for authenticated forms
+        if (exportData.sessionState) {
+            mappingExport.session_state = exportData.sessionState;
+        }
+        
+        return JSON.stringify(mappingExport, null, 2);
+    }
+    
+    /**
+     * Detect field mappings from captured events
+     */
+    detectFieldMappingsFromEvents(exportData) {
+        const mappings = [];
+        const nodes = exportData.nodes || [];
+        
+        // Look for copy-paste patterns
+        for (let i = 0; i < nodes.length; i++) {
+            const node = nodes[i];
+            const events = node.events || [];
+            
+            for (let j = 0; j < events.length; j++) {
+                const event = events[j];
+                
+                // Look for Excel/CSV copy followed by form paste
+                if (event.type === 'copy' || event.pythonEvent?.type === 'clipboard') {
+                    // Check if next events include a paste into a form field
+                    const nextEvents = events.slice(j + 1, j + 5); // Look ahead 5 events
+                    const pasteEvent = nextEvents.find(e => 
+                        (e.type === 'paste' || e.type === 'input') && 
+                        e.element?.selectors
+                    );
+                    
+                    if (pasteEvent) {
+                        mappings.push({
+                            source: {
+                                type: 'clipboard',
+                                display: event.pythonEvent?.source?.excel_selection?.address || 'Copied Data',
+                                sampleValue: event.pythonEvent?.content || event.content
+                            },
+                            destination: {
+                                selector: pasteEvent.element.selectors.id ? 
+                                    `#${pasteEvent.element.selectors.id}` : 
+                                    pasteEvent.element.selectors.css,
+                                fieldType: pasteEvent.element.type || 'text',
+                                label: pasteEvent.element.selectors.text
+                            }
+                        });
+                    }
+                }
+            }
+        }
+        
+        return mappings;
+    }
+    
+    /**
+     * Extract form information from events
+     */
+    extractFormInformation(exportData) {
+        const formInfo = {
+            url: null,
+            formId: null,
+            submitButton: null,
+            navigationSteps: []
+        };
+        
+        const nodes = exportData.nodes || [];
+        
+        for (const node of nodes) {
+            const events = node.events || [];
+            
+            for (const event of events) {
+                // Get form URL
+                if (event.type === 'navigation' && event.context?.url) {
+                    formInfo.url = event.context.url;
+                }
+                
+                // Find submit button
+                if (event.type === 'click' && 
+                    (event.element?.selectors?.text?.toLowerCase().includes('submit') ||
+                     event.element?.selectors?.text?.toLowerCase().includes('save'))) {
+                    formInfo.submitButton = event.element.selectors.id ? 
+                        `#${event.element.selectors.id}` : 
+                        event.element.selectors.css;
+                }
+            }
+        }
+        
+        return formInfo;
+    }
+    
+    /**
+     * Detect data source type
+     */
+    detectDataSourceType(exportData) {
+        const nodes = exportData.nodes || [];
+        
+        for (const node of nodes) {
+            const events = node.events || [];
+            for (const event of events) {
+                if (event.pythonEvent?.source?.excel_selection) {
+                    return 'excel';
+                }
+                if (event.pythonEvent?.data_type === 'tabular') {
+                    return 'csv';
+                }
+            }
+        }
+        
+        return 'unknown';
+    }
+    
+    /**
+     * Detect data structure
+     */
+    detectDataStructure(exportData) {
+        // This would analyze the data to detect headers, columns, etc.
+        return {
+            headers: [],
+            row_count: 0,
+            encoding: 'UTF-8'
+        };
+    }
+    
+    /**
+     * Extract sample data
+     */
+    extractSampleData(exportData) {
+        const samples = [];
+        const nodes = exportData.nodes || [];
+        
+        for (const node of nodes) {
+            const events = node.events || [];
+            for (const event of events) {
+                if (event.pythonEvent?.content && samples.length < 3) {
+                    samples.push(event.pythonEvent.content);
+                }
+            }
+        }
+        
+        return samples;
+    }
+    
+    /**
+     * Detect data transformation
+     */
+    detectTransformation(mapping) {
+        // This would detect if data needs transformation
+        // e.g., date format, uppercase, number formatting
+        return null;
+    }
+    
+    /**
+     * Count form submissions in captured events
+     */
+    countFormSubmissions(exportData) {
+        let count = 0;
+        const nodes = exportData.nodes || [];
+        
+        for (const node of nodes) {
+            const events = node.events || [];
+            for (const event of events) {
+                if (event.type === 'click' && 
+                    event.element?.selectors?.text?.toLowerCase().includes('submit')) {
+                    count++;
+                }
+            }
+        }
+        
+        return count;
     }
 }
 

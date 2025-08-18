@@ -141,7 +141,10 @@ class ProcessCaptureApp {
             captureSession: document.getElementById('capture-session'),
             clearSession: document.getElementById('clear-session'),
             sessionIndicator: document.getElementById('session-indicator'),
-            browserStatus: document.getElementById('browser-status-text'),
+            browserStatus: document.getElementById('browser-status'),
+            browserStatusText: document.getElementById('browser-status-text'),
+            connectBrowser: document.getElementById('connect-browser'),
+            testBrowser: document.getElementById('test-browser'),
             saveProcess: document.getElementById('save-process'),
             clearCapture: document.getElementById('clear-capture'),
             refreshApp: document.getElementById('refresh-app'),
@@ -192,6 +195,29 @@ class ProcessCaptureApp {
             // Browser status check will update UI appropriately
         });
         
+        // Browser connection control
+        if (this.elements.connectBrowser) {
+            this.elements.connectBrowser.addEventListener('click', async () => {
+                await this.connectBrowser();
+            });
+        }
+        
+        // Browser help button
+        const browserHelpBtn = document.getElementById('browser-help');
+        if (browserHelpBtn) {
+            browserHelpBtn.addEventListener('click', () => {
+                this.showBrowserHelp();
+            });
+        }
+        
+        // Test browser button for debugging
+        if (this.elements.testBrowser) {
+            this.elements.testBrowser.addEventListener('click', async () => {
+                console.log('🧪 Test browser button clicked');
+                await this.testBrowserContext();
+            });
+        }
+        
         // Capture session button
         if (this.elements.captureSession) {
             this.elements.captureSession.addEventListener('click', async () => {
@@ -232,6 +258,9 @@ class ProcessCaptureApp {
                             // Update UI
                             this.showNotification('Session captured successfully! Your authentication state will be included in exports.', 'success');
                             
+                            // Show authentication marking buttons
+                            this.showAuthenticationControls();
+                            
                             setTimeout(() => {
                                 this.elements.captureSession.textContent = '🍪 Capture Session';
                                 this.elements.captureSession.disabled = false;
@@ -270,7 +299,24 @@ class ProcessCaptureApp {
                     
                     this.showNotification('Session cleared', 'info');
                     console.log('Session cleared');
+                    
+                    // Hide authentication controls
+                    this.hideAuthenticationControls();
                 }
+            });
+        }
+        
+        // Mark authentication steps button
+        if (this.elements.markAuthSteps) {
+            this.elements.markAuthSteps.addEventListener('click', () => {
+                this.enterAuthMarkingMode();
+            });
+        }
+        
+        // Set replay start point button
+        if (this.elements.setReplayStart) {
+            this.elements.setReplayStart.addEventListener('click', () => {
+                this.enterReplayStartMode();
             });
         }
         
@@ -585,6 +631,14 @@ class ProcessCaptureApp {
             console.log('Browser status update:', status);
             this.updateBrowserStatus(status);
         });
+        
+        // Listen for browser connection notification
+        if (window.electronAPI.onBrowserConnected) {
+            window.electronAPI.onBrowserConnected((data) => {
+                console.log('Browser connected notification:', data);
+                this.showBrowserConnectionNotification(data);
+            });
+        }
         
         // Check initial browser status
         this.checkBrowserStatus();
@@ -1880,6 +1934,120 @@ class ProcessCaptureApp {
     }
 
     /**
+     * Show browser connection notification
+     */
+    showBrowserConnectionNotification(data) {
+        console.log('[App] Showing browser connection notification:', data);
+        
+        // Create notification element
+        const notification = document.createElement('div');
+        notification.className = 'browser-connection-notification';
+        
+        // Choose icon and message based on browser type
+        let icon, message, style;
+        if (data.browserType === 'chrome') {
+            icon = '✅';
+            message = 'Connected to YOUR Chrome browser';
+            style = 'success';
+        } else if (data.browserType === 'chromium') {
+            icon = '⚠️';
+            message = 'Connected to Chromium (temporary browser)';
+            style = 'warning';
+        } else {
+            icon = 'ℹ️';
+            message = data.message || 'Browser connected';
+            style = 'info';
+        }
+        
+        notification.innerHTML = `
+            <div class="notification-content ${style}">
+                <span class="notification-icon">${icon}</span>
+                <div class="notification-text">
+                    <div class="notification-title">${message}</div>
+                    <div class="notification-subtitle">
+                        ${data.browserType === 'chrome' ? 
+                          'Your cookies and logins are available' : 
+                          'No saved logins or cookies'}
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        // Add CSS styles if not already present
+        if (!document.querySelector('#browser-notification-styles')) {
+            const styles = document.createElement('style');
+            styles.id = 'browser-notification-styles';
+            styles.textContent = `
+                .browser-connection-notification {
+                    position: fixed;
+                    top: 20px;
+                    right: 20px;
+                    background: white;
+                    border-radius: 8px;
+                    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+                    padding: 16px;
+                    min-width: 300px;
+                    z-index: 10000;
+                    opacity: 0;
+                    transform: translateX(320px);
+                    transition: all 0.3s ease;
+                }
+                .browser-connection-notification.show {
+                    opacity: 1;
+                    transform: translateX(0);
+                }
+                .browser-connection-notification .notification-content {
+                    display: flex;
+                    align-items: center;
+                    gap: 12px;
+                }
+                .browser-connection-notification .notification-icon {
+                    font-size: 24px;
+                }
+                .browser-connection-notification .notification-title {
+                    font-weight: 600;
+                    margin-bottom: 4px;
+                }
+                .browser-connection-notification .notification-subtitle {
+                    font-size: 12px;
+                    opacity: 0.7;
+                }
+                .browser-connection-notification .success .notification-title {
+                    color: #2e7d32;
+                }
+                .browser-connection-notification .warning .notification-title {
+                    color: #f57c00;
+                }
+                .browser-connection-notification .info .notification-title {
+                    color: #1976d2;
+                }
+            `;
+            document.head.appendChild(styles);
+        }
+        
+        // Add to body
+        document.body.appendChild(notification);
+        
+        // Animate in
+        setTimeout(() => {
+            notification.classList.add('show');
+        }, 10);
+        
+        // Remove after 5 seconds (longer than success notification)
+        setTimeout(() => {
+            notification.classList.remove('show');
+            setTimeout(() => {
+                if (notification.parentNode) {
+                    document.body.removeChild(notification);
+                }
+            }, 300);
+        }, 5000);
+        
+        // Also update the browser status indicator
+        this.updateBrowserStatus(data.browserType === 'chrome' || data.browserType === 'chromium');
+    }
+
+    /**
      * Show step capture dialog
      */
     showStepDialog(activity) {
@@ -2573,16 +2741,347 @@ class ProcessCaptureApp {
     }
     
     /**
+     * Connect to browser
+     */
+    async connectBrowser() {
+        console.log('[connectBrowser] Starting browser connection...');
+        if (!window.electronAPI) {
+            console.error('[connectBrowser] electronAPI not available');
+            return;
+        }
+        
+        const btn = this.elements.connectBrowser;
+        const statusDiv = this.elements.browserStatus;
+        
+        console.log('[connectBrowser] Button element:', btn);
+        console.log('[connectBrowser] Status div element:', statusDiv);
+        
+        try {
+            // Update UI to show connecting
+            if (btn) {
+                btn.disabled = true;
+                btn.textContent = '⏳ Connecting...';
+            }
+            
+            console.log('[connectBrowser] Invoking browser:connect IPC...');
+            // Try to connect to browser
+            const result = await window.electronAPI.invoke('browser:connect');
+            console.log('[connectBrowser] Connection result:', result);
+            
+            if (result.success) {
+                // Update status display - check if elements exist
+                if (statusDiv) {
+                    const statusIcon = statusDiv.querySelector('.status-icon');
+                    const statusText = statusDiv.querySelector('.status-text');
+                    
+                    console.log('[connectBrowser] Status icon element:', statusIcon);
+                    console.log('[connectBrowser] Status text element:', statusText);
+                    
+                    if (statusIcon) statusIcon.textContent = '🟢';
+                    if (statusText) statusText.textContent = 'Browser: Connected';
+                    statusDiv.classList.add('connected');
+                } else {
+                    console.warn('[connectBrowser] Status div not found');
+                }
+                
+                if (btn) {
+                    btn.textContent = '✅ Connected';
+                    btn.disabled = true;
+                }
+                
+                // Add to activity feed if tracker exists
+                if (this.tracker) {
+                    this.tracker.addActivity({
+                        type: 'browser_connected',
+                        description: '🌐 Browser connected for enhanced capture'
+                    });
+                } else {
+                    console.log('[connectBrowser] 🌐 Browser connected for enhanced capture');
+                }
+                
+                // Enable session capture button - make it visible
+                if (this.elements.captureSession) {
+                    this.elements.captureSession.style.display = 'inline-block';
+                    console.log('[connectBrowser] ✅ Session capture button enabled');
+                } else {
+                    console.warn('[connectBrowser] ⚠️ Session capture button element not found');
+                }
+                
+                // Show test button for debugging
+                if (this.elements.testBrowser) {
+                    this.elements.testBrowser.style.display = 'inline-block';
+                    console.log('[connectBrowser] Test browser button enabled');
+                }
+            } else {
+                throw new Error(result.message || 'Connection failed');
+            }
+        } catch (error) {
+            console.error('[connectBrowser] Failed to connect browser:', error);
+            console.error('[connectBrowser] Error stack:', error.stack);
+            
+            if (btn) {
+                btn.disabled = false;
+                btn.textContent = '🌐 Connect Browser';
+            }
+            
+            // Add to activity feed if tracker exists
+            if (this.tracker) {
+                this.tracker.addActivity({
+                    type: 'browser_error',
+                    description: `❌ Browser connection failed: ${error.message}`
+                });
+            } else {
+                console.log('[connectBrowser] ❌ Browser connection failed:', error.message);
+            }
+            
+            // Show help message with better instructions
+            const helpMessage = `Browser Connection Options:\n\n` +
+                  `RECOMMENDED: Connect to YOUR Chrome browser\n` +
+                  `1. Close all Chrome windows\n` +
+                  `2. Start Chrome with debugging:\n\n` +
+                  `Mac:\n` +
+                  `/Applications/Google\\ Chrome.app/Contents/MacOS/Google\\ Chrome --remote-debugging-port=9222\n\n` +
+                  `Windows:\n` +
+                  `"C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe" --remote-debugging-port=9222\n\n` +
+                  `3. Navigate to ActiveCampaign or your target site\n` +
+                  `4. Click "Connect Browser" again\n\n` +
+                  `OR: Click OK to launch a new Chromium browser (less ideal)`;
+            
+            if (!confirm(helpMessage)) {
+                // User clicked Cancel - don't launch new browser
+                return;
+            }
+        }
+    }
+    
+    /**
+     * Show browser connection help
+     */
+    showBrowserHelp() {
+        const helpDialog = document.createElement('div');
+        helpDialog.style.cssText = `
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+            z-index: 10000;
+            max-width: 600px;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        `;
+        
+        helpDialog.innerHTML = `
+            <h2 style="margin-top: 0; color: #333;">🌐 Browser Connection Guide</h2>
+            
+            <div style="background: #e8f4f8; padding: 15px; border-radius: 5px; margin: 15px 0;">
+                <h3 style="margin-top: 0; color: #0066cc;">Option 1: Connect to YOUR Chrome (Recommended)</h3>
+                <p>This captures from your actual browser with all your logins and cookies:</p>
+                <ol style="margin: 10px 0;">
+                    <li>Close all Chrome windows</li>
+                    <li>Open Terminal (Mac) or Command Prompt (Windows)</li>
+                    <li>Run this command:</li>
+                </ol>
+                <div style="background: #333; color: #0f0; padding: 10px; border-radius: 3px; font-family: monospace; font-size: 12px; overflow-x: auto;">
+                    <strong>Mac:</strong><br>
+                    /Applications/Google\\ Chrome.app/Contents/MacOS/Google\\ Chrome --remote-debugging-port=9222<br><br>
+                    <strong>Windows:</strong><br>
+                    "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe" --remote-debugging-port=9222
+                </div>
+                <ol start="4" style="margin: 10px 0;">
+                    <li>Navigate to ActiveCampaign or your target site</li>
+                    <li>Click "Connect Browser" in Process Capture Studio</li>
+                </ol>
+            </div>
+            
+            <div style="background: #fff3cd; padding: 15px; border-radius: 5px; margin: 15px 0;">
+                <h3 style="margin-top: 0; color: #856404;">Option 2: Launch New Browser</h3>
+                <p>A fresh Chromium browser will open (no saved logins):</p>
+                <ul style="margin: 10px 0;">
+                    <li>Just click "Connect Browser"</li>
+                    <li>When prompted, click OK to launch Chromium</li>
+                    <li>You'll need to log in to sites manually</li>
+                </ul>
+            </div>
+            
+            <div style="background: #d4edda; padding: 15px; border-radius: 5px; margin: 15px 0;">
+                <h3 style="margin-top: 0; color: #155724;">💡 Pro Tip</h3>
+                <p>After connecting with Option 1, use the "🍪 Capture Session" button to save your login state. This lets you replay automations without logging in again!</p>
+            </div>
+            
+            <button id="close-help-dialog" style="
+                background: #007bff;
+                color: white;
+                border: none;
+                padding: 10px 20px;
+                border-radius: 5px;
+                cursor: pointer;
+                font-size: 16px;
+                margin-top: 10px;
+            ">Got it!</button>
+        `;
+        
+        document.body.appendChild(helpDialog);
+        
+        // Add event listener for close button
+        const closeBtn = document.getElementById('close-help-dialog');
+        if (closeBtn) {
+            closeBtn.addEventListener('click', () => {
+                helpDialog.remove();
+            });
+        }
+    }
+    
+    /**
+     * Test browser context capture - for debugging
+     */
+    async testBrowserContext() {
+        if (!window.electronAPI) return;
+        
+        console.log('🧪 Testing browser context capture...');
+        
+        try {
+            // Test if browser is connected
+            const statusResult = await window.electronAPI.invoke('browser:status');
+            console.log('Browser status:', statusResult);
+            
+            if (!statusResult || !statusResult.connected) {
+                console.warn('⚠️ Browser not connected. Click "Connect Browser" first.');
+                alert('⚠️ Browser not connected. Click "Connect Browser" first.');
+                return;
+            }
+            
+            // Show instructions
+            console.log('📍 Navigate to a webpage (like ActiveCampaign) and click on any element to test capture...');
+            
+            // Create a temporary overlay to capture clicks
+            const overlay = document.createElement('div');
+            overlay.style.cssText = `
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                background: rgba(0, 0, 0, 0.1);
+                z-index: 999999;
+                cursor: crosshair;
+            `;
+            
+            const label = document.createElement('div');
+            label.style.cssText = `
+                position: fixed;
+                top: 20px;
+                left: 50%;
+                transform: translateX(-50%);
+                background: #333;
+                color: white;
+                padding: 10px 20px;
+                border-radius: 5px;
+                z-index: 1000000;
+                font-family: monospace;
+            `;
+            label.textContent = 'Click anywhere to test browser element capture (ESC to cancel)';
+            
+            document.body.appendChild(overlay);
+            document.body.appendChild(label);
+            
+            // Handle click or escape
+            const cleanup = () => {
+                document.body.removeChild(overlay);
+                document.body.removeChild(label);
+            };
+            
+            const handleEscape = (e) => {
+                if (e.key === 'Escape') {
+                    cleanup();
+                    document.removeEventListener('keydown', handleEscape);
+                    console.log('❌ Test cancelled');
+                }
+            };
+            
+            document.addEventListener('keydown', handleEscape);
+            
+            overlay.addEventListener('click', async (event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                
+                const x = event.clientX;
+                const y = event.clientY;
+                
+                console.log(`Testing element at position (${x}, ${y})`);
+                cleanup();
+                document.removeEventListener('keydown', handleEscape);
+                
+                // Simulate a click event for browser context capture
+                const testEvent = {
+                    type: 'click',
+                    x: x,
+                    y: y,
+                    timestamp: Date.now()
+                };
+                
+                // Get element context from browser
+                const result = await window.electronAPI.invoke('browser:testCapture', testEvent);
+                
+                if (result && result.success && result.element) {
+                    console.log('✅ Element captured:', result.element);
+                    console.log(`✅ Captured: ${result.element.tagName || 'element'}`);
+                    
+                    // Show detailed info
+                    const details = [];
+                    if (result.element.selectors?.css) details.push(`CSS: ${result.element.selectors.css}`);
+                    if (result.element.selectors?.id) details.push(`ID: #${result.element.selectors.id}`);
+                    if (result.element.selectors?.xpath) details.push(`XPath: ${result.element.selectors.xpath}`);
+                    if (result.element.selectors?.text) details.push(`Text: "${result.element.selectors.text.substring(0, 50)}..."`);
+                    if (result.pageContext?.url) details.push(`URL: ${result.pageContext.url}`);
+                    if (result.pageContext?.title) details.push(`Title: ${result.pageContext.title}`);
+                    
+                    details.forEach(detail => {
+                        console.log(`  → ${detail}`);
+                    });
+                    
+                    // Log full result for debugging
+                    console.log('Full test result:', JSON.stringify(result, null, 2));
+                } else {
+                    console.log('❌ Failed to capture element:', result?.error || 'Unknown error');
+                    console.error(`❌ Failed to capture: ${result?.error || 'No element data returned'}`);
+                    
+                    if (result) {
+                        console.log('Test result:', result);
+                    }
+                }
+            });
+            
+        } catch (error) {
+            console.error('Test failed:', error);
+            console.error(`❌ Test failed: ${error.message}`);
+        }
+    }
+    
+    /**
      * Update browser status display
      */
     updateBrowserStatus(status) {
-        if (this.elements.browserStatus) {
+        const statusDiv = this.elements.browserStatus;
+        if (statusDiv) {
+            const statusIcon = statusDiv.querySelector('.status-icon');
+            const statusText = statusDiv.querySelector('.status-text');
+            
             if (status.reconnecting) {
-                this.elements.browserStatus.textContent = '🟡 Context: Reconnecting...';
-                this.elements.browserStatus.style.color = '#ffc107';
+                statusIcon.textContent = '🟡';
+                statusText.textContent = 'Browser: Reconnecting...';
+                statusDiv.classList.remove('connected');
             } else if (status.connected) {
-                this.elements.browserStatus.textContent = '🟢 Context: Connected';
-                this.elements.browserStatus.style.color = '#28a745';
+                statusIcon.textContent = '🟢';
+                statusText.textContent = 'Browser: Connected';
+                statusDiv.classList.add('connected');
+                
+                // Hide connect button when connected
+                if (this.elements.connectBrowser) {
+                    this.elements.connectBrowser.style.display = 'none';
+                }
                 
                 // Show session buttons when browser is connected
                 if (this.elements.captureSession) {
@@ -2599,8 +3098,17 @@ class ProcessCaptureApp {
                     }
                 }
             } else {
-                this.elements.browserStatus.textContent = '🔴 Context: Not Connected';
-                this.elements.browserStatus.style.color = '#dc3545';
+                // Update child elements, not the whole div
+                if (statusIcon) statusIcon.textContent = '🔴';
+                if (statusText) statusText.textContent = 'Browser: Disconnected';
+                statusDiv.classList.remove('connected');
+                
+                // Show connect button when disconnected
+                if (this.elements.connectBrowser) {
+                    this.elements.connectBrowser.style.display = 'inline-block';
+                    this.elements.connectBrowser.disabled = false;
+                    this.elements.connectBrowser.textContent = '🌐 Connect Browser';
+                }
                 
                 // Hide session buttons when not connected
                 if (this.elements.captureSession) {
@@ -3183,6 +3691,242 @@ class ProcessCaptureApp {
             return `Navigate to ${event.url || 'page'}`;
         }
         return event.type;
+    }
+
+    /**
+     * Show authentication control buttons after session capture
+     */
+    showAuthenticationControls() {
+        if (this.elements.markAuthSteps) {
+            this.elements.markAuthSteps.style.display = 'inline-block';
+        }
+        if (this.elements.setReplayStart) {
+            this.elements.setReplayStart.style.display = 'inline-block';
+        }
+        
+        // Add notification
+        this.addChatMessage('ai', '🔐 Session captured! You can now:\n1. Mark login steps to skip on replay\n2. Set where replay should start after authentication');
+    }
+    
+    /**
+     * Hide authentication control buttons
+     */
+    hideAuthenticationControls() {
+        if (this.elements.markAuthSteps) {
+            this.elements.markAuthSteps.style.display = 'none';
+        }
+        if (this.elements.setReplayStart) {
+            this.elements.setReplayStart.style.display = 'none';
+        }
+        
+        // Clear any authentication marking mode
+        this.exitAuthMarkingMode();
+        this.exitReplayStartMode();
+    }
+    
+    /**
+     * Enter authentication step marking mode
+     */
+    enterAuthMarkingMode() {
+        console.log('Entering authentication marking mode');
+        
+        // Change button appearance
+        if (this.elements.markAuthSteps) {
+            this.elements.markAuthSteps.classList.add('active');
+            this.elements.markAuthSteps.textContent = '✅ Click Steps to Mark';
+        }
+        
+        // Add instruction
+        this.addChatMessage('ai', '🔐 Click on the activity items that are part of the login process (username, password, 2FA, etc.). These will be skipped when replaying with a saved session. Click "Done Marking" when finished.');
+        
+        // Enable selection mode on activity items
+        this.authMarkingMode = true;
+        this.markedAuthSteps = new Set();
+        
+        // Add click handlers to activity items
+        this.enableActivitySelection('auth');
+        
+        // Show done button
+        this.showAuthMarkingDone();
+    }
+    
+    /**
+     * Exit authentication marking mode
+     */
+    exitAuthMarkingMode() {
+        console.log('Exiting authentication marking mode');
+        
+        if (this.elements.markAuthSteps) {
+            this.elements.markAuthSteps.classList.remove('active');
+            this.elements.markAuthSteps.textContent = '🔐 Mark Login Steps';
+        }
+        
+        this.authMarkingMode = false;
+        this.disableActivitySelection();
+        this.hideAuthMarkingDone();
+    }
+    
+    /**
+     * Enter replay start point selection mode
+     */
+    enterReplayStartMode() {
+        console.log('Entering replay start mode');
+        
+        if (this.elements.setReplayStart) {
+            this.elements.setReplayStart.classList.add('active');
+            this.elements.setReplayStart.textContent = '✅ Click Where to Start';
+        }
+        
+        this.addChatMessage('ai', '▶️ Click on the activity item where authenticated replay should begin (usually the first action after login). This is where the automation will start when using a saved session.');
+        
+        this.replayStartMode = true;
+        this.enableActivitySelection('replay-start');
+    }
+    
+    /**
+     * Exit replay start mode
+     */
+    exitReplayStartMode() {
+        console.log('Exiting replay start mode');
+        
+        if (this.elements.setReplayStart) {
+            this.elements.setReplayStart.classList.remove('active');
+            this.elements.setReplayStart.textContent = '▶️ Set Replay Start';
+        }
+        
+        this.replayStartMode = false;
+        this.disableActivitySelection();
+    }
+    
+    /**
+     * Enable activity selection for marking
+     */
+    enableActivitySelection(mode) {
+        const activityFeed = document.getElementById('activity-feed');
+        if (!activityFeed) return;
+        
+        // Add selection class to feed
+        activityFeed.classList.add('selection-mode', `selection-mode-${mode}`);
+        
+        // Add click handlers to all activity entries
+        const activities = activityFeed.querySelectorAll('.activity-entry');
+        activities.forEach(entry => {
+            entry.style.cursor = 'pointer';
+            entry.addEventListener('click', this.handleActivitySelection.bind(this));
+        });
+    }
+    
+    /**
+     * Disable activity selection
+     */
+    disableActivitySelection() {
+        const activityFeed = document.getElementById('activity-feed');
+        if (!activityFeed) return;
+        
+        activityFeed.classList.remove('selection-mode', 'selection-mode-auth', 'selection-mode-replay-start');
+        
+        const activities = activityFeed.querySelectorAll('.activity-entry');
+        activities.forEach(entry => {
+            entry.style.cursor = 'default';
+            entry.removeEventListener('click', this.handleActivitySelection);
+        });
+    }
+    
+    /**
+     * Handle activity selection click
+     */
+    handleActivitySelection(event) {
+        const entry = event.currentTarget;
+        const activityId = entry.dataset.activityId;
+        
+        if (this.authMarkingMode) {
+            // Toggle authentication marking
+            if (this.markedAuthSteps.has(activityId)) {
+                this.markedAuthSteps.delete(activityId);
+                entry.classList.remove('marked-as-auth');
+            } else {
+                this.markedAuthSteps.add(activityId);
+                entry.classList.add('marked-as-auth');
+            }
+            
+            // Update count
+            console.log(`Marked ${this.markedAuthSteps.size} authentication steps`);
+            
+        } else if (this.replayStartMode) {
+            // Set replay start point
+            const previousStart = document.querySelector('.replay-start-point');
+            if (previousStart) {
+                previousStart.classList.remove('replay-start-point');
+            }
+            
+            entry.classList.add('replay-start-point');
+            this.replayStartIndex = activityId;
+            
+            // Add visual marker
+            const marker = document.createElement('div');
+            marker.className = 'replay-start-marker';
+            marker.innerHTML = '═══ REPLAY STARTS HERE ═══';
+            entry.parentNode.insertBefore(marker, entry);
+            
+            // Store in process engine
+            this.engine.setReplayStartPoint(activityId);
+            
+            this.showNotification('✅ Replay start point set', 'success');
+            this.exitReplayStartMode();
+        }
+    }
+    
+    /**
+     * Show done button for authentication marking
+     */
+    showAuthMarkingDone() {
+        // Create done button if it doesn't exist
+        let doneBtn = document.getElementById('auth-marking-done');
+        if (!doneBtn) {
+            doneBtn = document.createElement('button');
+            doneBtn.id = 'auth-marking-done';
+            doneBtn.className = 'btn btn-success';
+            doneBtn.textContent = '✅ Done Marking';
+            doneBtn.style.position = 'fixed';
+            doneBtn.style.bottom = '20px';
+            doneBtn.style.left = '50%';
+            doneBtn.style.transform = 'translateX(-50%)';
+            doneBtn.style.zIndex = '1000';
+            document.body.appendChild(doneBtn);
+            
+            doneBtn.addEventListener('click', () => {
+                this.saveAuthenticationSteps();
+            });
+        }
+        
+        doneBtn.style.display = 'block';
+    }
+    
+    /**
+     * Hide done button for authentication marking
+     */
+    hideAuthMarkingDone() {
+        const doneBtn = document.getElementById('auth-marking-done');
+        if (doneBtn) {
+            doneBtn.style.display = 'none';
+        }
+    }
+    
+    /**
+     * Save marked authentication steps
+     */
+    saveAuthenticationSteps() {
+        console.log(`Saving ${this.markedAuthSteps.size} authentication steps`);
+        
+        // Mark the steps in the process engine
+        this.markedAuthSteps.forEach(stepId => {
+            this.engine.markAsAuthentication(stepId);
+        });
+        
+        this.showNotification(`✅ Marked ${this.markedAuthSteps.size} authentication steps`, 'success');
+        this.addChatMessage('ai', `🔐 Perfect! I've marked ${this.markedAuthSteps.size} login steps. These will be automatically skipped when replaying with a saved session.`);
+        
+        this.exitAuthMarkingMode();
     }
 }
 

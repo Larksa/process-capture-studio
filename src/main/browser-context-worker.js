@@ -130,32 +130,10 @@ class BrowserContextWorker {
       process.exit(0);
     });
     
-    // Auto-connect on startup
-    console.log('[BrowserWorker] Attempting auto-connect on startup...');
-    try {
-      const connectResult = await this.connect();
-      console.log('[BrowserWorker] Auto-connect result:', connectResult);
-      
-      // Send connection status event to main process
-      if (connectResult && connectResult.connected) {
-        console.log('[BrowserWorker] Notifying main process of successful connection');
-        process.send({
-          type: 'event',
-          event: 'connected',
-          data: connectResult
-        });
-      }
-    } catch (error) {
-      console.error('[BrowserWorker] Auto-connect failed:', error.message);
-      console.error('[BrowserWorker] Stack trace:', error.stack);
-      
-      // Send connection failure event
-      process.send({
-        type: 'event',
-        event: 'connection_failed',
-        data: { error: error.message }
-      });
-    }
+    // REMOVED: Auto-connect on startup
+    // Browser will only launch when user clicks "Connect Browser"
+    // This prevents double browser launch issue
+    console.log('[BrowserWorker] Worker ready - waiting for user to click Connect Browser');
     
     console.log('[BrowserWorker] Worker initialized and ready');
   }
@@ -165,8 +143,17 @@ class BrowserContextWorker {
    */
   async connect() {
     try {
-      // Always launch a new Playwright browser instance
-      // This avoids conflicts with port 9222 and other tools
+      // Check if already connected
+      if (this.service.isConnected && this.service.browser) {
+        console.log('[BrowserWorker] Already connected to browser, skipping launch');
+        return {
+          connected: true,
+          mode: 'existing',
+          hasActivePage: !!this.service.activePage
+        };
+      }
+      
+      // Launch a new Playwright browser instance
       console.log('[BrowserWorker] Launching Playwright browser instance...');
       const launched = await this.service.launchBrowser();
       console.log('[BrowserWorker] Launch attempt result:', launched);

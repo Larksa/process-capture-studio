@@ -13,6 +13,7 @@ const MarkBeforeHandler = require('./mark-before-handler');
 const StepBoundaryHandler = require('./step-boundary-handler');
 const PythonBridge = require('./python-bridge');
 const ReplayEngine = require('./replay-engine');
+const FieldMappingService = require('./field-mapping-service');
 
 // Keep references to avoid garbage collection
 let mainWindow = null;
@@ -22,6 +23,7 @@ let markBeforeHandler = null;
 let stepBoundaryHandler = null;
 let pythonBridge = null;
 let replayEngine = null;
+let fieldMappingService = null;
 let tray = null;
 let browserWorker = null;
 let browserWorkerRequests = new Map(); // Track pending requests
@@ -147,10 +149,21 @@ function initializeServices() {
     replayEngine = new ReplayEngine(captureService, pythonBridge);
     replayEngine.setMainWindow(mainWindow);
     
-    // Forward Python events to renderer
+    // Initialize Field Mapping Service
+    fieldMappingService = new FieldMappingService();
+    
+    // Forward Python events to renderer and field mapping service
     pythonBridge.on('python-event', (event) => {
         if (mainWindow && !mainWindow.isDestroyed()) {
             mainWindow.webContents.send('capture:python-event', event);
+        }
+        
+        // Also process in field mapping service if active
+        if (fieldMappingService && fieldMappingService.isActive) {
+            const result = fieldMappingService.handleMappingEvent(event);
+            if (result && mainWindow && !mainWindow.isDestroyed()) {
+                mainWindow.webContents.send('mapping:event', result);
+            }
         }
     });
     
@@ -170,8 +183,10 @@ function initializeServices() {
         stepBoundaryHandler.setCaptureService(captureService);
     }
     
-    // Delay browser worker initialization to avoid EPIPE errors
-    // Only initialize when actually needed or after a delay
+    // Don't auto-initialize browser worker - wait for user to click Connect Browser
+    // This prevents Chromium from launching on app start
+    console.log('[Main] Browser worker will be initialized when user clicks Connect Browser');
+    /* Commented out to prevent auto-launch
     setTimeout(() => {
         if (!browserWorker && !app.isQuitting) {
             try {
@@ -182,6 +197,7 @@ function initializeServices() {
             }
         }
     }, 2000);
+    */
     
     // Start capture service
     captureService.initialize();
@@ -261,9 +277,25 @@ function initializeBrowserWorker() {
         });
         
         // Handle messages from worker
-        browserWorker.on('message', (message) => {
+        browserWorker.on('message', async (message) => {
         const { id, type, success, data, error, event } = message;
         console.log(`[Main] Received from browser worker: type=${type}, id=${id}, success=${success}`);
+        
+        // Handle browser connection notification
+        if (type === 'browserConnected') {
+            console.log(`[Main] Browser connected: ${message.browserType}`);
+            // Send to renderer
+            if (mainWindow && !mainWindow.isDestroyed()) {
+                mainWindow.webContents.send('browser:connected', {
+                    browserType: message.browserType,
+                    message: message.message
+                });
+            }
+            return;
+        }
+        
+        // REMOVED: askUserForChromium handler
+        // The app now always launches its own Chromium browser
         
         if (type === 'response') {
             // Handle response to a request
@@ -506,6 +538,77 @@ function setupIpcHandlers() {
             };
         }
         return { active: false, eventCount: 0, currentText: '' };
+    });
+    
+    // Field Mapping handlers
+    ipcMain.handle('mapping:start', async (event, options) => {
+        console.log('[Main] Starting field mapping mode');
+        if (!fieldMappingService) {
+            return { success: false, error: 'Field mapping service not initialized' };
+        }
+        
+        const result = fieldMappingService.startMappingMode(options);
+        return { success: true, ...result };
+    });
+    
+    ipcMain.handle('mapping:stop', async () => {
+        console.log('[Main] Stopping field mapping mode');
+        if (!fieldMappingService) {
+            return { success: false, error: 'Field mapping service not initialized' };
+        }
+        
+        const result = fieldMappingService.stopMappingMode();
+        return { success: true, ...result };
+    });
+    
+    ipcMain.handle('mapping:process-click', async (event, clickEvent) => {
+        if (!fieldMappingService || !fieldMappingService.isActive) {
+            return { success: false, error: 'Mapping mode not active' };
+        }
+        
+        // Use the new handleMappingEvent method that handles all event types
+        const result = fieldMappingService.handleMappingEvent(clickEvent);
+        
+        // Send result back to renderer if there's a result
+        if (result && mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('mapping:event', result);
+        }
+        
+        return { success: true, ...result };
+    });
+    
+    ipcMain.handle('mapping:get-mappings', async () => {
+        if (!fieldMappingService) {
+            return { success: false, error: 'Field mapping service not initialized' };
+        }
+        
+        const mappings = fieldMappingService.getMappings();
+        return { success: true, ...mappings };
+    });
+    
+    ipcMain.handle('mapping:remove', async (event, mappingId) => {
+        if (!fieldMappingService) {
+            return { success: false, error: 'Field mapping service not initialized' };
+        }
+        
+        const result = fieldMappingService.removeMapping(mappingId);
+        return result;
+    });
+    
+    ipcMain.handle('mapping:clear', async () => {
+        if (!fieldMappingService) {
+            return { success: false, error: 'Field mapping service not initialized' };
+        }
+        
+        const result = fieldMappingService.clearMappings();
+        return result;
+    });
+    
+    ipcMain.handle('mapping:store-for-export', async (event, mappings) => {
+        console.log('[Main] Storing mappings for export:', mappings.length, 'mappings');
+        // Store mappings for later export
+        // This could be saved to a file or kept in memory
+        return { success: true };
     });
     
     // Step Boundary handlers
@@ -808,6 +911,53 @@ function setupIpcHandlers() {
         }
     }); */
     
+    // Connect browser manually
+    ipcMain.handle('browser:connect', async () => {
+        console.log('[Main] ============================================');
+        console.log('[Main] BROWSER CONNECTION REQUEST RECEIVED');
+        console.log('[Main] ============================================');
+        console.log('[Main] Will try to connect to YOUR Chrome first');
+        console.log('[Main] If not found, will launch Chromium as fallback');
+        
+        // Initialize browser worker if not already done
+        if (!browserWorker) {
+            console.log('[Main] Browser worker not initialized, creating it now...');
+            try {
+                initializeBrowserWorker();
+                // Wait a bit for initialization
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                console.log('[Main] Browser worker initialized successfully');
+            } catch (error) {
+                console.error('[Main] Failed to initialize browser worker:', error);
+                return { success: false, message: 'Failed to initialize browser worker' };
+            }
+        } else {
+            console.log('[Main] Browser worker already initialized');
+        }
+        
+        // Try to connect
+        try {
+            const result = await sendToBrowserWorker('connect');
+            console.log('[Main] Browser connect result:', result);
+            
+            if (result && result.connected) {
+                // Update UI
+                if (mainWindow) {
+                    mainWindow.webContents.send('browser:status-update', {
+                        connected: true,
+                        message: 'Browser connected successfully'
+                    });
+                }
+                return { success: true, message: 'Connected to browser' };
+            } else {
+                return { success: false, message: 'Failed to connect to browser' };
+            }
+        } catch (error) {
+            console.error('[Main] Browser connection error:', error);
+            return { success: false, message: error.message };
+        }
+    });
+    
     // Get browser connection status
     ipcMain.handle('browser:get-status', async () => {
         if (!browserWorker) {
@@ -822,6 +972,68 @@ function setupIpcHandlers() {
             };
         } catch (error) {
             return { connected: false, message: error.message };
+        }
+    });
+    
+    // Browser status check (alias for compatibility)
+    ipcMain.handle('browser:status', async () => {
+        if (!browserWorker) {
+            return { connected: false, message: 'Worker not initialized' };
+        }
+        
+        try {
+            const status = await sendToBrowserWorker('status');
+            return {
+                connected: status.isConnected,
+                message: status.isConnected ? 'Enhanced capture active' : 'Not connected'
+            };
+        } catch (error) {
+            return { connected: false, message: error.message };
+        }
+    });
+    
+    // Test browser context capture
+    ipcMain.handle('browser:testCapture', async (event, testEvent) => {
+        console.log('[Main] Test browser capture requested at position:', testEvent.x, testEvent.y);
+        
+        if (!browserWorker) {
+            return { success: false, error: 'Browser worker not initialized' };
+        }
+        
+        try {
+            // Send test request to browser worker
+            const requestId = Date.now().toString();
+            
+            return new Promise((resolve) => {
+                const timeout = setTimeout(() => {
+                    console.log('[Main] Test capture timeout');
+                    resolve({ success: false, error: 'Timeout getting browser context' });
+                }, 5000);
+                
+                // Store resolver for this request
+                browserWorkerRequests.set(requestId, {
+                    resolve: (result) => {
+                        clearTimeout(timeout);
+                        console.log('[Main] Test capture result:', result);
+                        resolve(result);
+                    },
+                    reject: (error) => {
+                        clearTimeout(timeout);
+                        console.log('[Main] Test capture error:', error);
+                        resolve({ success: false, error: error.message });
+                    }
+                });
+                
+                // Send test request to worker
+                browserWorker.send({
+                    id: requestId,
+                    type: 'testCapture',
+                    data: testEvent
+                });
+            });
+        } catch (error) {
+            console.error('[Main] Test capture error:', error);
+            return { success: false, error: error.message };
         }
     });
     
