@@ -6,6 +6,9 @@ Transform how you document and automate business processes. Watch your workflow 
 
 ## 🚀 Quick Start for Colleagues
 
+**⚠️ IMPORTANT: Requires TWO terminal windows running simultaneously!**
+
+### Terminal 1: Main Application
 ```bash
 # Clone the repository
 git clone https://github.com/andrewlarkey/process-capture-studio.git
@@ -14,11 +17,22 @@ cd process-capture-studio
 # Install dependencies and rebuild native modules
 npm install && npm run rebuild
 
-# Start the application
-npm start
+# Start the application (recommended: classic UI)
+npm run start:classic
+# OR: npm start
+```
 
-# Optional: Start with modern UI
-npm start:modern
+### Terminal 2: Python Capture Service
+```bash
+# In a NEW terminal window
+cd process-capture-studio/src/python
+
+# Install Python dependencies (first time only)
+pip3 install -r requirements.txt
+
+# Start the capture service
+./start_capture.sh
+# OR if Excel causes issues: ./start_capture_no_excel.sh
 ```
 
 **Prerequisites:**
