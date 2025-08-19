@@ -46,12 +46,7 @@ class BrowserContextService {
         // Listen for navigation
         page.on('load', () => {
           console.log('[BrowserService] Page loaded:', page.url());
-          // Set up input monitoring on new pages
-          this.setupInputMonitoring(page);
         });
-        
-        // Set up monitoring for the initial page
-        this.setupInputMonitoring(page);
       });
       
       this.isConnected = true;
@@ -347,8 +342,7 @@ class BrowserContextService {
           }
           return null;
         }
-        
-        // Add scroll offset to get the correct element  
+        // Add scroll offset to get the correct element
         const adjustedX = x + scrollX;
         const adjustedY = y + scrollY;
         
@@ -368,14 +362,6 @@ class BrowserContextService {
         
         console.log(`[Browser Console] elementFromPoint result:`, elem ? `<${elem.tagName}>` : 'null');
         
-        // Remove any existing highlight first
-        const existingHighlight = document.querySelector('[data-capture-highlight]');
-        if (existingHighlight) {
-          existingHighlight.style.outline = '';
-          existingHighlight.removeAttribute('data-capture-highlight');
-          existingHighlight.removeAttribute('data-capture-status');
-        }
-        
         if (!elem) {
           console.log(`[Browser Console] No element found at coordinates`);
           
@@ -394,31 +380,6 @@ class BrowserContextService {
           
           return null;
         }
-
-        // Add visual highlighting to the element
-        elem.setAttribute('data-capture-highlight', 'true');
-        elem.setAttribute('data-capture-status', 'detecting');
-        elem.style.outline = '3px dashed #ff4444';
-        elem.style.outlineOffset = '2px';
-        
-        // After a short delay, show it's ready
-        setTimeout(() => {
-          if (elem.hasAttribute('data-capture-highlight')) {
-            elem.setAttribute('data-capture-status', 'ready');
-            elem.style.outline = '3px solid #44ff44';
-            elem.style.outlineOffset = '2px';
-          }
-        }, 100);
-        
-        // Auto-cleanup after a few seconds
-        setTimeout(() => {
-          if (elem.hasAttribute('data-capture-highlight')) {
-            elem.style.outline = '';
-            elem.style.outlineOffset = '';
-            elem.removeAttribute('data-capture-highlight');
-            elem.removeAttribute('data-capture-status');
-          }
-        }, 3000);
 
         // Detect Shadow DOM and web component information
         const shadowInfo = detectShadowDOM(elem);
@@ -860,110 +821,6 @@ class BrowserContextService {
       this.browser = null;
       this.activePage = null;
       this.isConnected = false;
-    }
-  }
-
-  /**
-   * Set up monitoring for input field changes to capture actual typed text
-   * This provides a fallback when keystroke capture fails
-   */
-  async setupInputMonitoring(page) {
-    if (!page) return;
-    
-    try {
-      // First expose the function before page loads
-      await page.exposeFunction('captureInputChange', (detail) => {
-        console.log('[BrowserService] Input change captured:', detail);
-        // Send to main process for recording
-        if (process.send) {
-          process.send({
-            type: 'inputValueCaptured',
-            data: detail
-          });
-        }
-      });
-      
-      // Inject script to monitor input changes on the page
-      await page.addInitScript(() => {
-        // Store the last focused input and its value
-        let lastFocusedInput = null;
-        let lastInputValue = '';
-        
-        // Helper to send input change events
-        const sendInputChange = (element, value, eventType) => {
-          // Create custom event with input details
-          const event = new CustomEvent('captureStudioInputChange', {
-            detail: {
-              type: eventType,
-              value: value,
-              elementType: element.type || 'text',
-              elementName: element.name || '',
-              elementId: element.id || '',
-              selector: element.id ? `#${element.id}` : 
-                       element.name ? `[name="${element.name}"]` : 
-                       element.className ? `.${element.className.split(' ')[0]}` : '',
-              timestamp: Date.now()
-            }
-          });
-          
-          // Dispatch to window for capture
-          window.dispatchEvent(event);
-          console.log('[InputMonitor] Captured input change:', event.detail);
-        };
-        
-        // Monitor focus events to track which input is active
-        document.addEventListener('focusin', (e) => {
-          if (e.target.matches('input, textarea, [contenteditable="true"]')) {
-            lastFocusedInput = e.target;
-            lastInputValue = e.target.value || e.target.textContent || '';
-            console.log('[InputMonitor] Input focused:', e.target);
-          }
-        }, true);
-        
-        // Monitor input events for real-time value changes
-        document.addEventListener('input', (e) => {
-          if (e.target.matches('input, textarea, [contenteditable="true"]')) {
-            const currentValue = e.target.value || e.target.textContent || '';
-            const typedText = currentValue.substring(lastInputValue.length);
-            
-            if (typedText) {
-              sendInputChange(e.target, typedText, 'typed');
-            }
-            
-            lastInputValue = currentValue;
-          }
-        }, true);
-        
-        // Monitor change events for final values
-        document.addEventListener('change', (e) => {
-          if (e.target.matches('input, textarea, select')) {
-            sendInputChange(e.target, e.target.value, 'changed');
-          }
-        }, true);
-        
-        // Monitor blur events to capture final input state
-        document.addEventListener('blur', (e) => {
-          if (e.target === lastFocusedInput && e.target.matches('input, textarea, [contenteditable="true"]')) {
-            const finalValue = e.target.value || e.target.textContent || '';
-            if (finalValue !== lastInputValue) {
-              sendInputChange(e.target, finalValue, 'final');
-            }
-            lastFocusedInput = null;
-            lastInputValue = '';
-          }
-        }, true);
-        
-        // Connect the custom event to our exposed function
-        window.addEventListener('captureStudioInputChange', (e) => {
-          if (window.captureInputChange) {
-            window.captureInputChange(e.detail);
-          }
-        });
-      });
-      
-      console.log('[BrowserService] Input monitoring set up for page:', page.url());
-    } catch (error) {
-      console.error('[BrowserService] Failed to set up input monitoring:', error);
     }
   }
 }

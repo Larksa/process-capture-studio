@@ -34,7 +34,11 @@ if platform.system() == "Windows":
     import win32gui
     import win32process
 elif platform.system() == "Darwin":  # macOS
-    import applescript
+    try:
+        import applescript
+    except ImportError:
+        # Try py-applescript as fallback
+        import applescript as applescript
     import Quartz
 
 class FileSystemCapture(FileSystemEventHandler):
@@ -132,27 +136,58 @@ class ExcelCapture:
         self.active_workbook = None
         self.last_selection = None
         self.monitoring = False
+        self.error_count = 0
+        self.max_errors = 5
+        self.last_error_time = 0
+        self.backoff_time = 1  # Start with 1 second backoff
+        self.excel_enabled = os.environ.get('DISABLE_EXCEL_CAPTURE', '').lower() != 'true'
     
     def connect(self) -> bool:
         """Connect to Excel instance"""
+        if not self.excel_enabled:
+            return False
+            
         try:
             if platform.system() == "Windows":
                 import win32com.client
                 try:
                     # Try to get existing Excel instance
                     self.excel = win32com.client.GetObject(Class="Excel.Application")
+                    self.error_count = 0  # Reset error count on successful connect
                     return True
                 except:
                     # No Excel running
                     return False
             elif platform.system() == "Darwin":
-                # macOS - use AppleScript
+                # macOS - use AppleScript to check if Excel is running
                 try:
-                    script = applescript.AppleScript('tell application "Microsoft Excel" to get name')
-                    result = script.run()
-                    if result:
-                        self.excel = True  # Flag for macOS
-                        return True
+                    # First check if Excel is running
+                    check_script = applescript.AppleScript('''
+                        tell application "System Events"
+                            set isRunning to (name of processes) contains "Microsoft Excel"
+                        end tell
+                        return isRunning
+                    ''')
+                    is_running = check_script.run()
+                    
+                    if is_running:
+                        # Now check if there's an active workbook
+                        wb_script = applescript.AppleScript('''
+                            tell application "Microsoft Excel"
+                                try
+                                    get name of active workbook
+                                    return true
+                                on error
+                                    return false
+                                end try
+                            end tell
+                        ''')
+                        has_workbook = wb_script.run()
+                        
+                        if has_workbook:
+                            self.excel = True  # Flag for macOS
+                            self.error_count = 0  # Reset error count
+                            return True
                 except:
                     pass
             return False
@@ -161,13 +196,38 @@ class ExcelCapture:
     
     def capture_selection(self):
         """Capture current Excel selection with values"""
+        if not self.excel_enabled:
+            return
+            
+        # Check if we should back off due to errors
+        if self.error_count >= self.max_errors:
+            current_time = time.time()
+            if current_time - self.last_error_time < self.backoff_time:
+                return  # Still in backoff period
+            else:
+                # Try to reconnect after backoff
+                self.error_count = 0
+                self.backoff_time = 1
+                if not self.connect():
+                    self.excel = None
+                    return
+        
         try:
             if platform.system() == "Windows" and self.excel:
                 self._capture_windows_excel()
             elif platform.system() == "Darwin" and self.excel:
                 self._capture_macos_excel()
         except Exception as e:
-            print(f"Excel capture error: {e}")
+            self.error_count += 1
+            self.last_error_time = time.time()
+            
+            if self.error_count < self.max_errors:
+                print(f"Excel capture error ({self.error_count}/{self.max_errors}): {e}")
+            elif self.error_count == self.max_errors:
+                self.backoff_time = min(self.backoff_time * 2, 60)  # Exponential backoff up to 60 seconds
+                print(f"Excel capture disabled after {self.max_errors} errors. Will retry in {self.backoff_time} seconds.")
+                print("To disable Excel capture completely, set environment variable: export DISABLE_EXCEL_CAPTURE=true")
+                self.excel = None  # Disconnect from Excel
     
     def _capture_windows_excel(self):
         """Capture Excel data on Windows"""
@@ -251,21 +311,51 @@ class ExcelCapture:
     def _capture_macos_excel(self):
         """Capture Excel data on macOS using AppleScript"""
         try:
-            # Get current selection info
+            # Get current selection info with better error handling
             script = '''
             tell application "Microsoft Excel"
-                set sel to selection
-                set addr to get address of sel
-                set sheetName to name of active sheet
-                set wbName to name of active workbook
-                set val to value of sel
-                return {addr, sheetName, wbName, val}
+                try
+                    -- Check if there's an active workbook first
+                    set wbName to name of active workbook
+                    set sheetName to name of active sheet
+                    
+                    -- Get selection if available
+                    set sel to selection
+                    if sel is not missing value then
+                        try
+                            set addr to get address of sel
+                        on error
+                            -- If address fails, try to get the range as string
+                            set addr to "A1"  -- Default fallback
+                        end try
+                        
+                        try
+                            set val to value of sel
+                        on error
+                            set val to ""
+                        end try
+                    else
+                        set addr to "A1"
+                        set val to ""
+                    end if
+                    
+                    return {addr, sheetName, wbName, val}
+                on error errMsg
+                    -- No active workbook or other error
+                    return missing value
+                end try
             end tell
             '''
             as_script = applescript.AppleScript(script)
             result = as_script.run()
             
-            if result:
+            if result and result != 'missing value':
+                # Reset error count on successful capture
+                if self.error_count > 0:
+                    self.error_count = 0
+                    self.backoff_time = 1
+                    print("📊 Excel capture restored")
+                
                 # Parse result - it could be a list or string
                 if isinstance(result, list) and len(result) >= 4:
                     parts = result

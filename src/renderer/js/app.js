@@ -210,6 +210,14 @@ class ProcessCaptureApp {
             });
         }
         
+        // Visual feedback preview checkbox
+        const visualFeedbackCheckbox = document.getElementById('visual-feedback-preview');
+        if (visualFeedbackCheckbox) {
+            visualFeedbackCheckbox.addEventListener('change', (e) => {
+                this.toggleVisualFeedbackPreview(e.target.checked);
+            });
+        }
+        
         // Test browser button for debugging
         if (this.elements.testBrowser) {
             this.elements.testBrowser.addEventListener('click', async () => {
@@ -583,6 +591,47 @@ class ProcessCaptureApp {
                 this.tracker.addActivity(activity);
             }
             
+            // Update status bar with context
+            if (this.isRecording) {
+                const statusText = document.querySelector('#global-recording-status span:last-child');
+                if (statusText) {
+                    let contextMessage = 'Recording...';
+                    
+                    // Build context message based on activity type and available data
+                    if (activity.type === 'click') {
+                        const app = activity.application || 'Unknown';
+                        if (activity.element?.selectors?.text) {
+                            contextMessage = `Recording: ${app} - "${activity.element.selectors.text}"`;
+                        } else if (activity.element?.selectors?.id) {
+                            contextMessage = `Recording: ${app} - ${activity.element.selectors.id}`;
+                        } else if (activity.element?.tag) {
+                            contextMessage = `Recording: ${app} - <${activity.element.tag}>`;
+                        } else {
+                            contextMessage = `Recording: ${app} - Click at (${activity.position?.x}, ${activity.position?.y})`;
+                        }
+                    } else if (activity.type === 'keystroke') {
+                        contextMessage = `Recording: ${activity.application || 'Unknown'} - Typing "${activity.key}"`;
+                    } else if (activity.type === 'typed_text') {
+                        contextMessage = `Recording: ${activity.application || 'Unknown'} - Typed "${activity.text.substring(0, 20)}..."`;
+                    } else if (activity.type === 'app_switch') {
+                        contextMessage = `Recording: Switched to ${activity.application || 'unknown app'}`;
+                    } else if (activity.type === 'file_operation') {
+                        contextMessage = `Recording: ${activity.operation} - ${activity.path?.split('/').pop() || 'file'}`;
+                    } else if (activity.type === 'excel_activity') {
+                        contextMessage = `Recording: Excel - ${activity.action} ${activity.cell || ''}`;
+                    } else if (activity.type === 'clipboard') {
+                        contextMessage = `Recording: Copied from ${activity.application || 'Unknown'}`;
+                    }
+                    
+                    // Truncate if too long
+                    if (contextMessage.length > 80) {
+                        contextMessage = contextMessage.substring(0, 77) + '...';
+                    }
+                    
+                    statusText.textContent = contextMessage;
+                }
+            }
+            
             // Handle special activities
             if (activity.type === 'app_switch') {
                 this.addChatMessage('ai', `Switched to ${activity.application || 'unknown app'}`);
@@ -777,6 +826,46 @@ class ProcessCaptureApp {
     }
 
     /**
+     * Show recording hints to help users record better
+     */
+    showRecordingHints() {
+        // Add hint to chat/guide area
+        if (this.chat) {
+            this.addChatMessage('ai', 
+                '💡 **Recording Tips:**\n' +
+                '• In browsers: Hover over elements and wait for the green outline before clicking\n' +
+                '• Move deliberately - the system needs time to capture context\n' +
+                '• For Excel/desktop apps: Pause briefly after clicking to let the system capture cell/file info\n' +
+                '• Watch the status bar above to see what\'s being captured'
+            );
+        }
+        
+        // Show temporary tooltip
+        const tooltip = document.createElement('div');
+        tooltip.className = 'recording-hint-tooltip';
+        tooltip.innerHTML = `
+            <div style="background: #4CAF50; color: white; padding: 12px; border-radius: 8px; 
+                        position: fixed; top: 80px; right: 20px; z-index: 10000; 
+                        box-shadow: 0 4px 8px rgba(0,0,0,0.2); max-width: 350px;">
+                <strong>🎯 Recording Started!</strong><br>
+                <span style="font-size: 0.9em;">
+                • Hover and wait for green outline in browsers<br>
+                • Move slowly for better capture<br>
+                • Watch the status bar for context
+                </span>
+            </div>
+        `;
+        document.body.appendChild(tooltip);
+        
+        // Remove tooltip after 5 seconds
+        setTimeout(() => {
+            tooltip.style.transition = 'opacity 0.5s';
+            tooltip.style.opacity = '0';
+            setTimeout(() => tooltip.remove(), 500);
+        }, 5000);
+    }
+    
+    /**
      * Start capture
      */
     startCapture() {
@@ -809,6 +898,9 @@ class ProcessCaptureApp {
         const globalStatus = document.getElementById('global-recording-status');
         globalStatus.classList.add('recording');
         globalStatus.querySelector('span:last-child').textContent = 'Recording...';
+        
+        // Show recording hints
+        this.showRecordingHints();
         
         // Update capture status
         const captureStatus = document.getElementById('capture-status');
@@ -2731,6 +2823,12 @@ class ProcessCaptureApp {
     async checkBrowserStatus() {
         if (!window.electronAPI) return;
         
+        // Ensure button is visible on startup
+        const btn = this.elements.connectBrowser;
+        if (btn) {
+            btn.style.display = 'inline-block';
+        }
+        
         try {
             const status = await window.electronAPI.getBrowserStatus();
             this.updateBrowserStatus(status);
@@ -2741,10 +2839,10 @@ class ProcessCaptureApp {
     }
     
     /**
-     * Connect to browser
+     * Connect or disconnect browser
      */
     async connectBrowser() {
-        console.log('[connectBrowser] Starting browser connection...');
+        console.log('[connectBrowser] Browser button clicked...');
         if (!window.electronAPI) {
             console.error('[connectBrowser] electronAPI not available');
             return;
@@ -2756,11 +2854,29 @@ class ProcessCaptureApp {
         console.log('[connectBrowser] Button element:', btn);
         console.log('[connectBrowser] Status div element:', statusDiv);
         
+        // Check if we're currently connected (button shows "Disconnect")
+        const isConnected = btn && btn.classList.contains('connected');
+        
+        if (isConnected) {
+            console.log('[connectBrowser] Disconnecting browser...');
+            // Handle disconnect
+            await this.disconnectBrowser();
+            return;
+        }
+        
+        // Check if we're reconnecting after browser was closed
+        const isReconnect = btn && btn.textContent.includes('Connect Browser') && 
+                          statusDiv && statusDiv.querySelector('.status-text')?.textContent.includes('Disconnected');
+        
+        if (isReconnect) {
+            console.log('[connectBrowser] Reconnecting to browser after disconnection...');
+        }
+        
         try {
             // Update UI to show connecting
             if (btn) {
                 btn.disabled = true;
-                btn.textContent = '⏳ Connecting...';
+                btn.textContent = isReconnect ? '⏳ Reconnecting...' : '⏳ Connecting...';
             }
             
             console.log('[connectBrowser] Invoking browser:connect IPC...');
@@ -2785,8 +2901,10 @@ class ProcessCaptureApp {
                 }
                 
                 if (btn) {
-                    btn.textContent = '✅ Connected';
-                    btn.disabled = true;
+                    btn.textContent = '🔌 Disconnect Browser';
+                    btn.disabled = false;
+                    btn.classList.add('connected');
+                    btn.style.display = 'inline-block';
                 }
                 
                 // Add to activity feed if tracker exists
@@ -2855,8 +2973,108 @@ class ProcessCaptureApp {
     }
     
     /**
+     * Disconnect browser
+     */
+    async disconnectBrowser() {
+        console.log('[disconnectBrowser] Disconnecting browser...');
+        
+        const btn = this.elements.connectBrowser;
+        
+        try {
+            // Update UI
+            if (btn) {
+                btn.disabled = true;
+                btn.textContent = '⏳ Disconnecting...';
+                btn.classList.remove('connected');
+            }
+            
+            // Send disconnect command to main process
+            const result = await window.electronAPI.invoke('browser:disconnect');
+            
+            // Update status
+            this.updateBrowserStatus({ 
+                connected: false, 
+                message: 'Browser disconnected by user' 
+            });
+            
+            // Reset button
+            if (btn) {
+                btn.disabled = false;
+                btn.textContent = '🌐 Connect Browser';
+                btn.style.display = 'inline-block';
+            }
+            
+            // Add to activity feed
+            if (this.tracker) {
+                this.tracker.addActivity({
+                    type: 'browser',
+                    description: '🔴 Browser disconnected'
+                });
+            }
+            
+            console.log('[disconnectBrowser] Browser disconnected successfully');
+        } catch (error) {
+            console.error('[disconnectBrowser] Failed to disconnect:', error);
+            
+            // Reset button on error
+            if (btn) {
+                btn.disabled = false;
+                btn.textContent = '🔌 Disconnect Browser';
+                btn.classList.add('connected');
+            }
+        }
+    }
+    
+    /**
+     * Toggle visual feedback preview mode
+     */
+    async toggleVisualFeedbackPreview(enabled) {
+        console.log('[toggleVisualFeedbackPreview] Setting preview mode to:', enabled);
+        
+        if (enabled) {
+            // Enable preview mode - inject CSS for persistent feedback
+            if (window.electronAPI) {
+                const result = await window.electronAPI.invoke('browser:enablePreviewMode', { enabled: true });
+                if (result.success) {
+                    this.showNotification('Visual feedback preview enabled - hover over elements to see highlights', 'info');
+                    
+                    // Add tip in chat guide
+                    const chatGuide = document.getElementById('chat-messages');
+                    if (chatGuide) {
+                        const tip = document.createElement('div');
+                        tip.className = 'chat-message assistant';
+                        tip.innerHTML = `
+                            <div class="message-content">
+                                <strong>👁️ Preview Mode Active</strong><br>
+                                • Hover over elements to see highlights<br>
+                                • Red outline = detecting<br>
+                                • Green outline = ready<br>
+                                • No recording needed!
+                            </div>
+                        `;
+                        chatGuide.appendChild(tip);
+                        chatGuide.scrollTop = chatGuide.scrollHeight;
+                    }
+                } else {
+                    this.showNotification('Failed to enable preview mode', 'error');
+                    // Reset checkbox
+                    const checkbox = document.getElementById('visual-feedback-preview');
+                    if (checkbox) checkbox.checked = false;
+                }
+            }
+        } else {
+            // Disable preview mode
+            if (window.electronAPI) {
+                await window.electronAPI.invoke('browser:enablePreviewMode', { enabled: false });
+                this.showNotification('Visual feedback preview disabled', 'info');
+            }
+        }
+    }
+    
+    /**
      * Show browser connection help
      */
+    
     showBrowserHelp() {
         const helpDialog = document.createElement('div');
         helpDialog.style.cssText = `
@@ -2869,69 +3087,195 @@ class ProcessCaptureApp {
             border-radius: 10px;
             box-shadow: 0 4px 20px rgba(0,0,0,0.2);
             z-index: 10000;
-            max-width: 600px;
+            max-width: 700px;
+            max-height: 80vh;
+            overflow-y: auto;
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
         `;
         
         helpDialog.innerHTML = `
-            <h2 style="margin-top: 0; color: #333;">🌐 Browser Connection Guide</h2>
+            <h2 style="margin-top: 0; color: #333;">📋 Complete Workflow Guide</h2>
             
             <div style="background: #e8f4f8; padding: 15px; border-radius: 5px; margin: 15px 0;">
-                <h3 style="margin-top: 0; color: #0066cc;">Option 1: Connect to YOUR Chrome (Recommended)</h3>
-                <p>This captures from your actual browser with all your logins and cookies:</p>
-                <ol style="margin: 10px 0;">
-                    <li>Close all Chrome windows</li>
-                    <li>Open Terminal (Mac) or Command Prompt (Windows)</li>
-                    <li>Run this command:</li>
-                </ol>
-                <div style="background: #333; color: #0f0; padding: 10px; border-radius: 3px; font-family: monospace; font-size: 12px; overflow-x: auto;">
-                    <strong>Mac:</strong><br>
-                    /Applications/Google\\ Chrome.app/Contents/MacOS/Google\\ Chrome --remote-debugging-port=9222<br><br>
-                    <strong>Windows:</strong><br>
-                    "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe" --remote-debugging-port=9222
+                <h3 style="margin-top: 0; color: #0066cc;">STEP 1: Connect Browser</h3>
+                
+                <div style="background: #d1f2ff; padding: 12px; border-radius: 4px; margin: 10px 0; border-left: 4px solid #0066cc;">
+                    <strong style="color: #0066cc;">✅ RECOMMENDED: Launch Chromium Browser</strong>
+                    <ul style="margin: 8px 0 0 20px;">
+                        <li>Just click <strong>"Connect Browser"</strong></li>
+                        <li>A fresh Chromium browser opens instantly</li>
+                        <li>Clean environment for recording</li>
+                        <li>Works the same for all users</li>
+                        <li style="color: #666;">Note: You'll login once, then capture session for future replays</li>
+                    </ul>
                 </div>
-                <ol start="4" style="margin: 10px 0;">
-                    <li>Navigate to ActiveCampaign or your target site</li>
-                    <li>Click "Connect Browser" in Process Capture Studio</li>
+                
+                <details style="margin-top: 15px;">
+                    <summary style="cursor: pointer; color: #666; font-size: 14px;">
+                        <strong>Advanced: Connect to YOUR Chrome/Edge</strong> (for power users)
+                    </summary>
+                    <div style="margin: 10px 0; padding: 10px; background: #f8f8f8; border-radius: 4px;">
+                        <p style="margin: 5px 0; font-size: 13px;">Use this if you need your specific browser profile with extensions/settings:</p>
+                        <ol style="margin: 5px 0 10px 20px; font-size: 13px;">
+                            <li>Close ALL Chrome/Edge windows completely</li>
+                            <li>Open Terminal (Mac) or Command Prompt (Windows)</li>
+                            <li>Run command:</li>
+                        </ol>
+                        <div style="background: #333; color: #0f0; padding: 8px; border-radius: 3px; font-family: monospace; font-size: 10px; overflow-x: auto;">
+                            <strong>Chrome (Mac):</strong><br>
+                            /Applications/Google\\ Chrome.app/Contents/MacOS/Google\\ Chrome --remote-debugging-port=9222<br><br>
+                            <strong>Edge (Mac):</strong><br>
+                            /Applications/Microsoft\\ Edge.app/Contents/MacOS/Microsoft\\ Edge --remote-debugging-port=9222<br><br>
+                            <strong>Chrome (Windows):</strong><br>
+                            "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe" --remote-debugging-port=9222<br><br>
+                            <strong>Edge (Windows):</strong><br>
+                            "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe" --remote-debugging-port=9222
+                        </div>
+                        <ol start="4" style="margin: 10px 0 0 20px; font-size: 13px;">
+                            <li>Click "Connect Browser" in Process Capture Studio</li>
+                        </ol>
+                        <p style="margin: 10px 0 0 0; font-size: 12px; color: #d73502;">
+                            ⚠️ <strong>Known Issues:</strong> Profile selection can cause connection loops. Specify profile in command if needed.
+                        </p>
+                    </div>
+                </details>
+                
+                <div style="background: #e8f5e9; padding: 10px; border-radius: 4px; margin-top: 12px;">
+                    <p style="margin: 0; font-size: 13px;">
+                        <strong>💡 Works with:</strong> Chrome, Edge, Brave, and any Chromium-based browser
+                    </p>
+                </div>
+            </div>
+            
+            <div style="background: #e8f5e9; padding: 15px; border-radius: 5px; margin: 15px 0;">
+                <h3 style="margin-top: 0; color: #2e7d32;">STEP 2: Start Recording Your Workflow</h3>
+                <ol style="margin: 10px 0;">
+                    <li>Click <strong>"Start Capture"</strong></li>
+                    <li>Open your Excel/CSV file (if needed)</li>
+                    <li>Navigate to your target website</li>
+                    <li>Perform your normal workflow</li>
                 </ol>
             </div>
             
-            <div style="background: #fff3cd; padding: 15px; border-radius: 5px; margin: 15px 0;">
-                <h3 style="margin-top: 0; color: #856404;">Option 2: Launch New Browser</h3>
-                <p>A fresh Chromium browser will open (no saved logins):</p>
+            <div style="background: #fff3e0; padding: 15px; border-radius: 5px; margin: 15px 0;">
+                <h3 style="margin-top: 0; color: #e65100;">STEP 3: Capture Authentication <em>(Skip login on replay!)</em></h3>
+                <p style="margin: 5px 0;">After logging into website:</p>
+                <ol style="margin: 10px 0;">
+                    <li>Click <strong>"🍪 Capture Session"</strong> - saves cookies/login state</li>
+                    <li>Click <strong>"🔐 Mark Login Steps"</strong> - select all login actions</li>
+                    <li>Click <strong>"▶️ Set Replay Start"</strong> - mark where real work begins</li>
+                </ol>
+                <p style="margin: 5px 0; color: #666;">→ Result: Replays skip login, start from logged-in state!</p>
+            </div>
+            
+            <div style="background: #f3e5f5; padding: 15px; border-radius: 5px; margin: 15px 0;">
+                <h3 style="margin-top: 0; color: #7b1fa2;">STEP 4: Map Excel/CSV to Forms <em>(Data automation)</em></h3>
+                <p style="margin: 5px 0;">This captures your copy-paste workflow:</p>
+                <ol style="margin: 10px 0;">
+                    <li>Have your CSV/Excel file open</li>
+                    <li>Click <strong>"🔗 Map Fields"</strong> to enter mapping mode</li>
+                    <li>Copy data from Excel (Cmd+C)</li>
+                    <li>Paste into form field (Cmd+V)</li>
+                    <li>Repeat for each field you want to map</li>
+                    <li>Click "Done Mapping"</li>
+                </ol>
+                <div style="background: rgba(123, 31, 162, 0.1); padding: 10px; border-radius: 3px; margin: 10px 0;">
+                    <strong>Example workflow captured:</strong><br>
+                    • Copy from Excel column A → Paste to "First Name" field<br>
+                    • Copy from Excel column B → Paste to "Last Name" field<br>
+                    • Copy from Excel column C → Paste to "Email" field<br>
+                    → Can now automate for 1000s of rows!
+                </div>
+            </div>
+            
+            <div style="background: #ffebee; padding: 15px; border-radius: 5px; margin: 15px 0;">
+                <h3 style="margin-top: 0; color: #c62828;">STEP 5: Save & Export Your Automation</h3>
+                <ol style="margin: 10px 0;">
+                    <li>Click <strong>"💾 Save"</strong> to preserve your work</li>
+                    <li>Click <strong>"📤 Export"</strong> in Replay Center</li>
+                    <li>Choose format:
+                        <ul style="margin: 5px 0 0 20px;">
+                            <li>Playwright (web automation)</li>
+                            <li>Python (desktop + web)</li>
+                            <li>JSON (complete data)</li>
+                        </ul>
+                    </li>
+                </ol>
+            </div>
+            
+            <div style="background: #e0f2f1; padding: 15px; border-radius: 5px; margin: 15px 0;">
+                <h3 style="margin-top: 0; color: #00695c;">💡 PRO TIPS</h3>
                 <ul style="margin: 10px 0;">
-                    <li>Just click "Connect Browser"</li>
-                    <li>When prompted, click OK to launch Chromium</li>
-                    <li>You'll need to log in to sites manually</li>
+                    <li>Record your ACTUAL workflow - copy/paste included!</li>
+                    <li>Capture session AFTER login for best results</li>
+                    <li>Map Fields captures the Excel→Form relationship</li>
+                    <li>Use Cmd+Shift+M to mark important actions</li>
+                    <li>Export includes everything for full replay</li>
                 </ul>
             </div>
             
-            <div style="background: #d4edda; padding: 15px; border-radius: 5px; margin: 15px 0;">
-                <h3 style="margin-top: 0; color: #155724;">💡 Pro Tip</h3>
-                <p>After connecting with Option 1, use the "🍪 Capture Session" button to save your login state. This lets you replay automations without logging in again!</p>
+            <div style="background: #fce4ec; padding: 15px; border-radius: 5px; margin: 15px 0;">
+                <h3 style="margin-top: 0; color: #880e4f;">🎯 Quick Test - Data Entry Automation</h3>
+                <ol style="margin: 10px 0; font-size: 14px;">
+                    <li>Connect Browser</li>
+                    <li>Start Capture</li>
+                    <li>Login to your web app</li>
+                    <li>Capture Session (save login)</li>
+                    <li>Mark login steps to skip</li>
+                    <li>Open Excel file</li>
+                    <li>Click Map Fields</li>
+                    <li>Copy from Excel → Paste to form (for each field)</li>
+                    <li>Done mapping</li>
+                    <li>Stop capture</li>
+                    <li>Export → You now have automation for all rows!</li>
+                </ol>
+            </div>
+            
+            <div style="background: #fff8e1; padding: 15px; border-radius: 5px; margin: 15px 0;">
+                <h3 style="margin-top: 0; color: #f57c00;">⚠️ Troubleshooting</h3>
+                <ul style="margin: 10px 0;">
+                    <li><strong>"Browser won't connect"</strong> → Chrome must be fully closed first</li>
+                    <li><strong>"Session not saving"</strong> → Must be on logged-in page</li>
+                    <li><strong>"Mapping not working"</strong> → Ensure you're in mapping mode (overlay visible)</li>
+                    <li><strong>"Excel not captured"</strong> → Python service must be running</li>
+                </ul>
             </div>
             
             <button id="close-help-dialog" style="
-                background: #007bff;
+                background: #4CAF50;
                 color: white;
                 border: none;
-                padding: 10px 20px;
+                padding: 12px 24px;
                 border-radius: 5px;
                 cursor: pointer;
                 font-size: 16px;
                 margin-top: 10px;
-            ">Got it!</button>
+                width: 100%;
+                font-weight: 600;
+            ">Got it! Let's start recording</button>
         `;
         
         document.body.appendChild(helpDialog);
         
-        // Add event listener for close button
-        const closeBtn = document.getElementById('close-help-dialog');
-        if (closeBtn) {
-            closeBtn.addEventListener('click', () => {
+        // Add event listener for close button after a small delay to ensure DOM is ready
+        setTimeout(() => {
+            const closeBtn = document.getElementById('close-help-dialog');
+            if (closeBtn) {
+                closeBtn.addEventListener('click', () => {
+                    console.log('[showBrowserHelp] Close button clicked');
+                    helpDialog.remove();
+                });
+            } else {
+                console.error('[showBrowserHelp] Close button not found in DOM');
+            }
+        }, 10);
+        
+        // Also add click handler to close on background click
+        helpDialog.addEventListener('click', (e) => {
+            if (e.target === helpDialog) {
                 helpDialog.remove();
-            });
-        }
+            }
+        });
     }
     
     /**
@@ -3065,6 +3409,8 @@ class ProcessCaptureApp {
      */
     updateBrowserStatus(status) {
         const statusDiv = this.elements.browserStatus;
+        const btn = this.elements.connectBrowser;
+        
         if (statusDiv) {
             const statusIcon = statusDiv.querySelector('.status-icon');
             const statusText = statusDiv.querySelector('.status-text');
@@ -3078,9 +3424,18 @@ class ProcessCaptureApp {
                 statusText.textContent = 'Browser: Connected';
                 statusDiv.classList.add('connected');
                 
-                // Hide connect button when connected
-                if (this.elements.connectBrowser) {
-                    this.elements.connectBrowser.style.display = 'none';
+                // Update connect button to show connected state
+                if (btn) {
+                    btn.textContent = '🔌 Disconnect Browser';
+                    btn.disabled = false;  // Keep enabled to allow disconnect
+                    btn.style.display = 'inline-block';  // Make sure it stays visible
+                    btn.classList.add('connected');  // Add class for styling if needed
+                }
+                
+                // Show visual feedback preview checkbox
+                const feedbackToggle = document.querySelector('.visual-feedback-toggle');
+                if (feedbackToggle) {
+                    feedbackToggle.style.display = 'inline-flex';
                 }
                 
                 // Show session buttons when browser is connected
@@ -3103,11 +3458,21 @@ class ProcessCaptureApp {
                 if (statusText) statusText.textContent = 'Browser: Disconnected';
                 statusDiv.classList.remove('connected');
                 
-                // Show connect button when disconnected
-                if (this.elements.connectBrowser) {
-                    this.elements.connectBrowser.style.display = 'inline-block';
-                    this.elements.connectBrowser.disabled = false;
-                    this.elements.connectBrowser.textContent = '🌐 Connect Browser';
+                // Reset connect button to allow reconnection
+                if (btn) {
+                    btn.disabled = false;
+                    btn.textContent = '🌐 Connect Browser';
+                    btn.style.display = 'inline-block';  // Make sure button is visible
+                    btn.classList.remove('connected');  // Remove connected class
+                }
+                
+                // Hide visual feedback preview checkbox
+                const feedbackToggle = document.querySelector('.visual-feedback-toggle');
+                if (feedbackToggle) {
+                    feedbackToggle.style.display = 'none';
+                    // Reset checkbox to unchecked
+                    const checkbox = document.getElementById('visual-feedback-preview');
+                    if (checkbox) checkbox.checked = false;
                 }
                 
                 // Hide session buttons when not connected
@@ -3116,6 +3481,16 @@ class ProcessCaptureApp {
                 }
                 if (this.elements.clearSession) {
                     this.elements.clearSession.style.display = 'none';
+                }
+                
+                // Show notification that browser disconnected
+                if (status.message === 'Browser disconnected') {
+                    if (this.tracker) {
+                        this.tracker.addActivity({
+                            type: 'browser',
+                            description: '🔴 Browser disconnected - Click "Connect Browser" to reconnect'
+                        });
+                    }
                 }
             }
         }

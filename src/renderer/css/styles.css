@@ -1601,6 +1601,31 @@ textarea.form-input {
     box-shadow: 0 4px 12px rgba(76, 175, 80, 0.4);
 }
 
+/* Visual feedback preview checkbox */
+.visual-feedback-toggle {
+    display: inline-flex;
+    align-items: center;
+    cursor: pointer;
+    padding: 5px 10px;
+    background: rgba(255,255,255,0.05);
+    border-radius: 5px;
+    transition: background 0.2s;
+}
+
+.visual-feedback-toggle:hover {
+    background: rgba(255,255,255,0.1);
+}
+
+.visual-feedback-toggle input[type="checkbox"] {
+    margin-right: 5px;
+    cursor: pointer;
+}
+
+.visual-feedback-toggle span {
+    color: #fff;
+    font-size: 12px;
+}
+
 /* Step Node Styles */
 .process-node.step {
     background: linear-gradient(135deg, #e8f5e9, #c8e6c9);
@@ -2164,6 +2189,13 @@ textarea.form-input {
     border: none;
     padding: 6px 12px;
     font-size: 12px;
+    display: inline-block !important; /* Force visibility */
+    visibility: visible !important;
+    min-width: 140px; /* Ensure button has consistent width */
+}
+
+.btn-browser.connected {
+    background: linear-gradient(135deg, #dc2626 0%, #991b1b 100%);
 }
 
 .btn-browser:hover {

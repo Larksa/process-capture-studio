@@ -193,11 +193,23 @@ class ClipboardMonitor:
             script = '''
             tell application "Microsoft Excel"
                 try
-                    set sel to selection
-                    set addr to get address of sel
-                    set sheetName to name of active sheet
+                    -- Check for active workbook first
                     set wbName to name of active workbook
+                    set sheetName to name of active sheet
                     set wbPath to full name of active workbook
+                    
+                    -- Get selection safely
+                    set sel to selection
+                    if sel is not missing value then
+                        try
+                            set addr to get address of sel
+                        on error
+                            set addr to "A1"
+                        end try
+                    else
+                        set addr to "A1"
+                    end if
+                    
                     return {addr, sheetName, wbName, wbPath}
                 on error
                     return missing value

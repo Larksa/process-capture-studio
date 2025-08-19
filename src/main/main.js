@@ -108,8 +108,8 @@ function createMainWindow() {
     });
 
     // Load the app
-    // Check for UI preference or use modern UI by default
-    const useModernUI = process.env.USE_MODERN_UI !== 'false';
+    // Check for UI preference - default to classic UI
+    const useModernUI = process.env.USE_MODERN_UI === 'true';
     const htmlFile = useModernUI ? 'index-modern.html' : 'index.html';
     
     mainWindow.loadFile(path.join(__dirname, '../renderer', htmlFile));
@@ -183,21 +183,20 @@ function initializeServices() {
         stepBoundaryHandler.setCaptureService(captureService);
     }
     
-    // Don't auto-initialize browser worker - wait for user to click Connect Browser
-    // This prevents Chromium from launching on app start
-    console.log('[Main] Browser worker will be initialized when user clicks Connect Browser');
-    /* Commented out to prevent auto-launch
+    // Initialize browser worker early for better selector capture
+    // This ensures it's ready when recording starts
+    console.log('[Main] Initializing browser worker for enhanced capture...');
     setTimeout(() => {
         if (!browserWorker && !app.isQuitting) {
             try {
                 initializeBrowserWorker();
+                console.log('[Main] Browser worker initialized - ready for enhanced capture');
             } catch (error) {
                 console.error('[Main] Failed to initialize browser worker:', error);
                 // Continue without browser worker - it's optional
             }
         }
-    }, 2000);
-    */
+    }, 2000); // Start after 2 seconds to let main window initialize
     
     // Start capture service
     captureService.initialize();
@@ -281,6 +280,33 @@ function initializeBrowserWorker() {
         const { id, type, success, data, error, event } = message;
         console.log(`[Main] Received from browser worker: type=${type}, id=${id}, success=${success}`);
         
+        // Handle input value capture from browser
+        if (type === 'inputValueCaptured') {
+            console.log(`[Main] Input value captured from browser:`, data);
+            // Send to capture service to add to event buffer
+            if (captureService) {
+                captureService.addInputValueEvent(data);
+            }
+            // Also send to renderer for real-time display
+            if (mainWindow && !mainWindow.isDestroyed()) {
+                mainWindow.webContents.send('capture:inputValue', data);
+            }
+            return;
+        }
+        
+        // Handle browser disconnection notification
+        if (type === 'browser-disconnected') {
+            console.log('[Main] Browser disconnected notification received:', data);
+            // Notify renderer about disconnection
+            if (mainWindow && !mainWindow.isDestroyed()) {
+                mainWindow.webContents.send('browser:status-update', {
+                    connected: false,
+                    message: 'Browser disconnected'
+                });
+            }
+            return;
+        }
+        
         // Handle browser connection notification
         if (type === 'browserConnected') {
             console.log(`[Main] Browser connected: ${message.browserType}`);
@@ -334,8 +360,8 @@ function initializeBrowserWorker() {
                     case 'browser_closed':
                         statusUpdate = {
                             connected: false,
-                            message: 'Browser was closed - reconnecting...',
-                            reconnecting: true
+                            message: 'Browser disconnected',
+                            reconnecting: false
                         };
                         break;
                         
@@ -958,6 +984,33 @@ function setupIpcHandlers() {
         }
     });
     
+    // Disconnect browser
+    ipcMain.handle('browser:disconnect', async () => {
+        console.log('[Main] Browser disconnect requested');
+        
+        if (!browserWorker) {
+            return { success: false, message: 'Worker not initialized' };
+        }
+        
+        try {
+            const result = await sendToBrowserWorker('disconnect');
+            console.log('[Main] Browser disconnect result:', result);
+            
+            // Update UI
+            if (mainWindow) {
+                mainWindow.webContents.send('browser:status-update', {
+                    connected: false,
+                    message: 'Browser disconnected by user'
+                });
+            }
+            
+            return { success: true, message: 'Disconnected from browser' };
+        } catch (error) {
+            console.error('[Main] Browser disconnect error:', error);
+            return { success: false, message: error.message };
+        }
+    });
+    
     // Get browser connection status
     ipcMain.handle('browser:get-status', async () => {
         if (!browserWorker) {
@@ -993,6 +1046,24 @@ function setupIpcHandlers() {
     });
     
     // Test browser context capture
+    ipcMain.handle('browser:enablePreviewMode', async (event, { enabled }) => {
+        console.log('[Main] Enabling visual feedback preview mode:', enabled);
+        
+        try {
+            if (!browserWorker) {
+                return { success: false, error: 'Browser not connected' };
+            }
+            
+            // Send to browser worker to inject preview CSS
+            const result = await sendToBrowserWorker('enablePreviewMode', { enabled });
+            
+            return { success: true, enabled };
+        } catch (error) {
+            console.error('[Main] Failed to enable preview mode:', error);
+            return { success: false, error: error.message };
+        }
+    });
+    
     ipcMain.handle('browser:testCapture', async (event, testEvent) => {
         console.log('[Main] Test browser capture requested at position:', testEvent.x, testEvent.y);
         

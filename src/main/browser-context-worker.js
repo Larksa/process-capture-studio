@@ -94,6 +94,11 @@ class BrowserContextWorker {
             console.log('[BrowserWorker] Session refreshed:', result ? 'Success' : 'Failed');
             break;
             
+          case 'enablePreviewMode':
+            console.log('[BrowserWorker] Handling enablePreviewMode request...');
+            result = await this.enablePreviewMode(data.enabled);
+            break;
+            
           default:
             throw new Error(`Unknown message type: ${type}`);
         }
@@ -160,6 +165,14 @@ class BrowserContextWorker {
       
       if (!launched) {
         throw new Error('Failed to launch browser');
+      }
+      
+      // Set up browser disconnect monitoring
+      if (this.service.browser) {
+        this.service.browser.on('disconnected', () => {
+          console.log('[BrowserWorker] Browser disconnected event detected');
+          this.handleBrowserDisconnected();
+        });
       }
       
       // Don't navigate anywhere - let the user navigate
@@ -307,6 +320,86 @@ class BrowserContextWorker {
   }
   
   /**
+   * Enable or disable visual feedback preview mode
+   */
+  async enablePreviewMode(enabled) {
+    console.log(`[BrowserWorker] Setting preview mode to: ${enabled}`);
+    
+    if (!this.service.isConnected || !this.service.activePage) {
+      throw new Error('Browser not connected or no active page');
+    }
+    
+    try {
+      if (enabled) {
+        // Inject CSS and JavaScript for visual feedback on hover
+        await this.service.activePage.addInitScript(() => {
+          // Add CSS for hover effects
+          const style = document.createElement('style');
+          style.id = 'process-capture-preview-mode';
+          style.textContent = `
+            /* Process Capture Studio - Visual Feedback Preview Mode */
+            *:hover {
+              outline: 3px dashed #ff4444 !important;
+              outline-offset: 2px !important;
+              transition: outline 0.1s ease-in-out !important;
+            }
+            
+            *:hover:after {
+              content: '';
+              position: absolute;
+              top: 0;
+              left: 0;
+              right: 0;
+              bottom: 0;
+              outline: 3px solid #44ff44 !important;
+              outline-offset: 2px !important;
+              animation: ready-pulse 0.5s ease-in-out;
+              pointer-events: none;
+            }
+            
+            @keyframes ready-pulse {
+              0% { outline-color: #ff4444; }
+              100% { outline-color: #44ff44; }
+            }
+          `;
+          
+          // Remove any existing preview style
+          const existing = document.getElementById('process-capture-preview-mode');
+          if (existing) existing.remove();
+          
+          // Add the new style
+          document.head.appendChild(style);
+          
+          console.log('[Preview Mode] Visual feedback CSS injected');
+        });
+        
+        // Reload the page to apply the script
+        await this.service.activePage.reload();
+        
+        console.log('[BrowserWorker] Preview mode enabled successfully');
+        return { enabled: true };
+        
+      } else {
+        // Remove preview mode CSS
+        await this.service.activePage.evaluate(() => {
+          const style = document.getElementById('process-capture-preview-mode');
+          if (style) {
+            style.remove();
+            console.log('[Preview Mode] Visual feedback CSS removed');
+          }
+        });
+        
+        console.log('[BrowserWorker] Preview mode disabled');
+        return { enabled: false };
+      }
+      
+    } catch (error) {
+      console.error('[BrowserWorker] Failed to toggle preview mode:', error);
+      throw error;
+    }
+  }
+  
+  /**
    * Get element at specific coordinates
    */
   async getElementAtPoint(x, y) {
@@ -430,51 +523,29 @@ class BrowserContextWorker {
               event: 'browser_closed',
               data: { 
                 reason: 'Browser window was closed',
-                willReconnect: true 
+                willReconnect: false  // Changed to false - no auto-reconnect
               }
             });
             
-            // Attempt to reconnect
-            console.log('[BrowserWorker] Attempting to relaunch browser...');
-            const launched = await this.service.launchBrowser();
-            
-            if (launched) {
-              console.log('[BrowserWorker] Browser relaunched successfully');
-              
-              // Notify main process
-              process.send({
-                type: 'event',
-                event: 'browser_reconnected',
-                data: {
-                  connected: true,
-                  mode: 'relaunched',
-                  hasActivePage: !!this.service.activePage
-                }
-              });
-            } else {
-              console.error('[BrowserWorker] Failed to relaunch browser');
-              
-              process.send({
-                type: 'event',
-                event: 'browser_reconnect_failed',
-                data: { error: 'Could not relaunch browser' }
-              });
-            }
+            // Don't auto-relaunch - user must click Connect Browser again
+            console.log('[BrowserWorker] Browser closed by user. Click "Connect Browser" to reconnect.');
           }
         } else if (this.isInitialized && !this.service.browser) {
           // Browser object is gone but we were initialized
-          console.log('[BrowserWorker] Browser object lost, attempting recovery...');
+          console.log('[BrowserWorker] Browser object lost. User must reconnect manually.');
           
-          const launched = await this.service.launchBrowser();
-          if (launched) {
-            console.log('[BrowserWorker] Browser recovered');
-            
-            process.send({
-              type: 'event',
-              event: 'browser_recovered',
-              data: { connected: true }
-            });
-          }
+          // Mark as disconnected
+          this.isInitialized = false;
+          
+          // Notify main process
+          process.send({
+            type: 'event',
+            event: 'browser_closed',
+            data: { 
+              reason: 'Browser connection lost',
+              willReconnect: false
+            }
+          });
         }
       } catch (error) {
         console.error('[BrowserWorker] Health check error:', error);
@@ -516,6 +587,40 @@ class BrowserContextWorker {
     }
   }
   
+  /**
+   * Handle browser disconnected event
+   */
+  handleBrowserDisconnected() {
+    console.log('[BrowserWorker] Browser has been disconnected');
+    
+    // Update internal state
+    this.service.isConnected = false;
+    this.service.browser = null;
+    this.service.activePage = null;
+    this.isInitialized = false;
+    
+    // Clear any monitoring intervals
+    if (this.reconnectInterval) {
+      clearInterval(this.reconnectInterval);
+      this.reconnectInterval = null;
+    }
+    
+    if (this.healthCheckInterval) {
+      clearInterval(this.healthCheckInterval);
+      this.healthCheckInterval = null;
+    }
+    
+    // Notify main process about disconnection
+    console.log('[BrowserWorker] Sending browser-disconnected event to main process');
+    process.send({
+      type: 'browser-disconnected',
+      data: {
+        timestamp: Date.now(),
+        reason: 'Browser window closed by user'
+      }
+    });
+  }
+
   /**
    * Cleanup before exit
    */

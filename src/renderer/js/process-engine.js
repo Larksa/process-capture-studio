@@ -805,27 +805,176 @@ class ProcessEngine {
     generateJSONReplayStrategy(exportData) {
         console.log('[Export] Generating JSON Replay Strategy format');
         
-        // Process each node to add replay strategies
-        const enhancedNodes = exportData.nodes.map(node => {
+        // Collect all events with timing information
+        let allEvents = [];
+        let eventCounter = 0;
+        const recordingStartTime = exportData.nodes[0]?.events?.[0]?.timestamp || Date.now();
+        
+        // Process each node to add replay strategies and collect events
+        let enhancedNodes = exportData.nodes.map(node => {
             const processedNode = { ...node };
             
-            // Process events to add replay strategies
+            // Process events to add replay strategies and timing
             if (node.events && node.events.length > 0) {
-                processedNode.events = node.events.map(event => this.addReplayStrategy(event));
+                processedNode.events = node.events.map((event, eventIndex) => {
+                    const enhancedEvent = this.addReplayStrategy(event);
+                    
+                    // Add timing information
+                    const eventTime = event.timestamp || recordingStartTime;
+                    const prevEvent = eventIndex > 0 ? node.events[eventIndex - 1] : 
+                                     (allEvents.length > 0 ? allEvents[allEvents.length - 1] : null);
+                    
+                    enhancedEvent.timingInfo = {
+                        timeSinceStart: eventTime - recordingStartTime,
+                        timeSincePrevious: prevEvent ? eventTime - (prevEvent.timestamp || eventTime) : 0,
+                        timestamp: eventTime
+                    };
+                    
+                    // Add to flat event list
+                    allEvents.push({
+                        ...enhancedEvent,
+                        eventId: `event-${++eventCounter}`,
+                        nodeId: node.id,
+                        nodeTitle: node.title || node.description
+                    });
+                    
+                    return enhancedEvent;
+                });
             }
             
             return processedNode;
         });
         
+        // Insert initial navigation node if we have session and URL
+        if (exportData.sessionState && exportData.sessionMetadata?.url) {
+            // Check if first node already navigates to the starting URL
+            const firstNode = enhancedNodes[0];
+            const firstEvent = firstNode?.events?.[0];
+            const firstUrl = firstEvent?.pageContext?.url || firstEvent?.context?.url;
+            
+            // Only add navigation if not already present
+            if (!firstUrl || !firstUrl.includes(exportData.sessionMetadata.url)) {
+                console.log('[Export] Adding initial navigation to session starting URL');
+                
+                // Create synthetic navigation node
+                const navigationNode = {
+                    id: 'initial-navigation',
+                    type: 'navigation',
+                    title: 'Navigate to Session Starting Point',
+                    description: `Navigate to ${exportData.sessionMetadata.url} after loading session`,
+                    metadata: {
+                        synthetic: true,
+                        required: true,
+                        order: -1  // Execute before all other nodes
+                    },
+                    events: [{
+                        type: 'navigation',
+                        url: exportData.sessionMetadata.url,
+                        timestamp: exportData.sessionMetadata.capturedAt,
+                        replay_strategies: {
+                            primary: {
+                                method: 'browser_navigation',
+                                type: 'goto',
+                                value: exportData.sessionMetadata.url,
+                                confidence: 1.0
+                            }
+                        },
+                        description: 'Initial navigation to session starting point'
+                    }]
+                };
+                
+                // Prepend to nodes array
+                enhancedNodes = [navigationNode, ...enhancedNodes];
+            }
+        }
+        
+        // Separate browser and desktop events
+        const browserEvents = [];
+        const desktopEvents = [];
+        const mixedSequence = [];
+        
+        allEvents.forEach(event => {
+            const isBrowserEvent = !!(event.pageContext || event.element?.selectors || 
+                                     event.context?.url || event.url);
+            
+            if (isBrowserEvent) {
+                const browserIndex = browserEvents.length;
+                browserEvents.push(event);
+                mixedSequence.push({
+                    type: 'browser',
+                    index: browserIndex,
+                    eventId: event.eventId,
+                    timestamp: event.timestamp || event.timingInfo?.timestamp
+                });
+            } else {
+                const desktopIndex = desktopEvents.length;
+                desktopEvents.push(event);
+                mixedSequence.push({
+                    type: 'desktop',
+                    index: desktopIndex,
+                    eventId: event.eventId,
+                    timestamp: event.timestamp || event.timingInfo?.timestamp
+                });
+            }
+        });
+        
+        // Calculate recording end time
+        const recordingEndTime = allEvents.length > 0 ? 
+            allEvents[allEvents.length - 1].timingInfo?.timestamp || Date.now() : 
+            Date.now();
+        
         // Build the enhanced export structure
         const replayExport = {
+            // Top-level recording metadata (NEW)
+            recording: {
+                startUrl: exportData.sessionMetadata?.url || 
+                         allEvents.find(e => e.pageContext?.url)?.pageContext?.url || null,
+                requiresAuth: !!exportData.sessionState,
+                authMethod: exportData.sessionState ? "session_cookies" : "manual",
+                recordingStartedAt: new Date(recordingStartTime).toISOString(),
+                recordingEndedAt: new Date(recordingEndTime).toISOString(),
+                duration: recordingEndTime - recordingStartTime,
+                environment: {
+                    platform: process.platform,
+                    resolution: { width: 1920, height: 1080 }  // TODO: Detect actual resolution
+                }
+            },
+            
+            // Top-level startingUrl for easy access (NEW)
+            startingUrl: exportData.sessionMetadata?.url || null,
+            
             metadata: {
                 format: 'json-replay-strategy',
-                version: '1.0.0',
+                version: '1.1.0',  // Bumped version for new features
                 generated: new Date().toISOString(),
                 generator: 'Process Capture Studio',
                 ...exportData.process.metadata
             },
+            
+            // Clear replay instructions
+            replay_instructions: {
+                step1: exportData.sessionState ? "Load session state (cookies/localStorage/sessionStorage)" : "Start with fresh browser",
+                step2: exportData.sessionMetadata?.url ? 
+                    `Navigate to starting URL: ${exportData.sessionMetadata.url}` : 
+                    "Navigate to first captured URL",
+                step3: "Execute captured events in sequential order",
+                step4: "Use replay strategies (primary → secondary → fallback) for each event",
+                note: exportData.sessionState ? 
+                    "Authentication steps are automatically skipped when session is loaded" : 
+                    "Manual login may be required if no session state is available"
+            },
+            
+            // Initial navigation requirement
+            initial_navigation: exportData.sessionMetadata?.url ? {
+                required: true,
+                url: exportData.sessionMetadata.url,
+                description: "Navigate to this URL after loading session state",
+                order: 0,  // Execute before any other actions
+                replay_strategy: {
+                    method: "browser_navigation",
+                    confidence: 1.0
+                }
+            } : null,
             
             // Automation hints for the replay tool
             automation_hints: {
@@ -839,6 +988,7 @@ class ProcessEngine {
                 ),
                 coordinate_reliability: this.calculateCoordinateReliability(exportData.nodes),
                 session_available: !!exportData.sessionState,
+                starting_url: exportData.sessionMetadata?.url || null,
                 monitor_info: {
                     // Add monitor information if available
                     count: 1, // Default, could be enhanced
@@ -857,9 +1007,22 @@ class ProcessEngine {
             nodes: enhancedNodes,
             edges: exportData.edges,
             
+            // Separated browser vs desktop events (NEW)
+            browserEvents: browserEvents,
+            desktopEvents: desktopEvents,
+            mixedSequence: mixedSequence,  // Preserves chronological order
+            
+            // Flat event list for better granularity (NEW)
+            flatEvents: allEvents,
+            
             // Statistics
             statistics: {
                 ...exportData.statistics,
+                totalEvents: allEvents.length,
+                browserEventCount: browserEvents.length,
+                desktopEventCount: desktopEvents.length,
+                averageTimeBetweenEvents: allEvents.length > 1 ? 
+                    Math.round((recordingEndTime - recordingStartTime) / (allEvents.length - 1)) : 0,
                 replay_strategies: {
                     selector_based: enhancedNodes.reduce((sum, n) => 
                         sum + (n.events?.filter(e => e.replay_strategies?.primary?.method === 'selector').length || 0), 0
@@ -1352,7 +1515,13 @@ async function execute${this.toCamelCase(this.process.name)}() {
     
     // Set default timeout for all actions
     page.setDefaultTimeout(30000);
-    
+    ${this.process.sessionState && this.process.sessionMetadata?.url ? `
+    // Navigate to where the session was captured
+    const startingUrl = '${this.process.sessionMetadata.url}';
+    console.log('🔗 Navigating to session starting point:', startingUrl);
+    await page.goto(startingUrl, { waitUntil: 'networkidle' });
+    console.log('✅ Ready to replay from authenticated state');
+    ` : ''}
 `;
         
         // Convert nodes to code

@@ -26,8 +26,8 @@ npm test                 # All tests using Jest
 npm test:watch           # Watch mode for TDD
 npm test:coverage        # Generate coverage report
 npm test -- test/unit/mark-before-handler.test.js  # Single test file
-npm test:e2e            # Playwright end-to-end tests
-python3 test_excel_capture.py  # Test Excel capture
+npm test:e2e            # Playwright end-to-end tests (if configured)
+python3 test_excel_capture.py  # Test Excel capture (if exists)
 
 # Build & Distribution
 npm run build           # Current platform
@@ -74,22 +74,27 @@ The **Global Event Buffer** in `capture-service.js` is the single source of trut
 - `browser-context-worker.js` - Forked process for Playwright CDP operations
 - `browser-context-service.js` - Browser context enrichment, session management
 - `python-bridge.js` - WebSocket server for Python service communication
-- `replay-engine.js` - Executes captured automations for validation (NEW)
+- `replay-engine.js` - Executes captured automations for validation
 - `mark-before-handler.js` - Intent capture (Cmd+Shift+M) handling
 - `step-boundary-handler.js` - Groups events into logical steps
+- `field-mapping-service.js` - Maps form fields across different automation formats
+- `shadow-dom-utils.js` - Handles Shadow DOM element selection
 - `window-manager.js` - Multi-window management, positioning
 - `preload.js` - Secure bridge between renderer and main process
 
 ### Renderer Process (`src/renderer/`)
 - `index.html` - Classic UI (default, stable)
-- `modern.html` - Modern terminal UI (experimental)
+- `index-modern.html` - Modern terminal UI (experimental)
 - `js/app.js` - Classic UI main application logic
 - `js/modern-app.js` - Modern terminal-style UI logic
 - `js/process-engine.js` - Export generation (Playwright, Python, JSON, JSON-Replay)
-- `js/replay-controller.js` - Replay Center UI management (NEW)
+- `js/replay-controller.js` - Replay Center UI management
 - `js/activity-tracker.js` - Activity panel updates
 - `js/chat-guide.js` - Guide panel interactions
 - `js/workflow-analyzer.js` - Pattern detection, loop recognition
+- `js/canvas-builder.js` - Process map visualization
+- `js/terminal-renderer.js` - Terminal-style UI rendering
+- `js/mapping-controller.js` - Field mapping UI management
 
 ### Python Service (`src/python/`)
 - `capture_service.py` - Main Python service, coordinates monitors
@@ -97,20 +102,6 @@ The **Global Event Buffer** in `capture-service.js` is the single source of trut
 - `start_capture.sh` - Shell script to start Python service
 - `requirements.txt` - Python dependencies
 
-## Recent Features
-
-### Replay Automation (feature/replay-automation-button branch)
-- **Replay Engine**: Simulates captured automations for validation
-- **Replay Center**: Replaced Process Map panel with functional replay controls
-- **Rich Context Display**: Shows button names, file names instead of coordinates
-- **Multiple speeds**: 0.5x, 1x, 2x, 5x replay with step-through mode
-
-### JSON Replay Strategy Export (NEW)
-- Enhanced JSON export with replay strategies per event
-- Primary, secondary, and fallback automation methods
-- Confidence scores for each method
-- Application-specific hints (COM automation, AppleScript)
-- Window-relative coordinates where applicable
 
 ## Core Capture Capabilities
 
@@ -119,16 +110,7 @@ The **Global Event Buffer** in `capture-service.js` is the single source of trut
 - Element attributes and text
 - Page URL and title
 - Session state (cookies, localStorage)
-
-### IMPORTANT: Browser Portability
-**Chromium is ONLY for capture - exported code runs in ANY browser!**
-- Capture uses Chromium for consistency
-- Exports use universal DOM selectors that work in Chrome, Edge, Firefox, Safari
-- Just change one line in exported code to switch browsers:
-  - Playwright: `chromium.launch()` → `firefox.launch()` or `webkit.launch()`
-  - Selenium: `.forBrowser('chrome')` → `.forBrowser('edge')` or `.forBrowser('firefox')`
-- Sessions (cookies) are portable across all Chromium-based browsers
-- **No vendor lock-in** - capture once, run anywhere!
+- Shadow DOM element handling
 
 ### 2. System Events (via uiohook-napi)
 - Global keystrokes and mouse clicks
@@ -197,6 +179,16 @@ const y = event.y !== undefined ? event.y :
           (event.position?.y !== undefined ? event.position.y : 'unknown');
 ```
 
+### Keyboard Shortcut Capture (CRITICAL)
+```javascript
+// capture-service.js line 314 - Build key combinations from modifiers
+// Without this, Cmd+V is captured as just "V" and paste events are missed!
+if ((event.metaKey || event.ctrlKey) && key !== 'Cmd' && key !== 'Ctrl') {
+    const modifier = event.metaKey ? 'Cmd' : 'Ctrl';
+    key = `${modifier}+${key}`;  // Creates "Cmd+V" or "Ctrl+V"
+}
+```
+
 ## IPC Event Flow
 
 Critical channels:
@@ -208,21 +200,28 @@ Critical channels:
 - `browser:saveSession` → Capture auth state
 - `session:capture/load` → Session management
 - `step:start/end` → Step boundary grouping
-- `replay:start/stop/pause/resume` → Replay control (NEW)
-- `replay:status` → Replay status updates (NEW)
-- `replay:log` → Replay log entries (NEW)
+- `replay:start/stop/pause/resume` → Replay control
+- `replay:status` → Replay status updates
+- `replay:log` → Replay log entries
+- `field-mapping:*` → Field mapping operations
 
 ## Export System
 
 ProcessEngine generates different formats based on captured data:
-- **JSON** → Complete data structure
-- **JSON Replay Strategy** → Enhanced JSON with replay methods and confidence scores (NEW)
-- **Playwright/Puppeteer** → Web with DOM selectors + embedded session state
+- **JSON** → Raw combined data from Python + Browser events (unprocessed)
+- **JSON Replay Strategy v1.1.0** → Enhanced format for replay tools with:
+  - `startingUrl` at top level for easy navigation
+  - `recording` metadata with timestamps and environment
+  - `flatEvents` array with all individual events
+  - `browserEvents` / `desktopEvents` separation
+  - `mixedSequence` for chronological order
+  - `timingInfo` on each event (timeSinceStart, timeSincePrevious)
+- **Playwright/Puppeteer** → Web automation with DOM selectors + embedded session state
 - **Python/pyautogui** → Desktop apps, file operations
 - **Selenium** → Cross-browser testing format
 - **Raw Log** → Complete capture with all context (debugging)
 - **YAML** → Human-readable structured format
-- **Mermaid** → Diagram markdown
+- **Mermaid** → Process flow diagram
 - **Markdown/Plain Text** → Documentation formats
 
 ### Export Format Selection
@@ -245,6 +244,18 @@ npm run rebuild  # MUST run after npm install
 npm install -g node-gyp
 npm run rebuild
 ```
+
+### Known Issues (Recently Fixed)
+1. **Keystroke display shows wrong characters** (e.g., "2" shows as "M")
+   - Fixed in `getKeyName()` function - now uses `event.keychar` first
+   
+2. **Paste events not captured** (Cmd+V / Ctrl+V)
+   - Fixed by building key combinations from modifier flags
+   - See Keyboard Shortcut Capture section above
+
+3. **Starting URL not navigated to during replay**
+   - JSON Replay Strategy v1.1.0 now includes `startingUrl` and `initial_navigation`
+   - Playwright export includes automatic navigation after session load
 
 ### macOS Permissions
 - System Preferences → Security & Privacy → Accessibility
@@ -349,12 +360,31 @@ Build configuration is in `package.json` under the `build` key.
 
 ## Git Workflow
 
-Current active branch: `feature/replay-automation-button`
-- Contains replay functionality and JSON Replay Strategy export
-- Not yet merged to main
+Default branch: `main`
 
-To switch between branches:
+Common workflow:
 ```bash
-git checkout main                             # Stable version
-git checkout feature/replay-automation-button # Latest features
+# Create feature branch
+git checkout -b feature/your-feature-name
+
+# Make changes and commit
+git add .
+git commit -m "Description of changes"
+
+# Push to GitHub
+git push -u origin feature/your-feature-name
+
+# Create pull request on GitHub
+# After review, merge to main
 ```
+
+## Browser Portability
+
+**Chromium is ONLY for capture - exported code runs in ANY browser!**
+- Capture uses Chromium for consistency
+- Exports use universal DOM selectors that work in Chrome, Edge, Firefox, Safari
+- Just change one line in exported code to switch browsers:
+  - Playwright: `chromium.launch()` → `firefox.launch()` or `webkit.launch()`
+  - Selenium: `.forBrowser('chrome')` → `.forBrowser('edge')` or `.forBrowser('firefox')`
+- Sessions (cookies) are portable across all Chromium-based browsers
+- **No vendor lock-in** - capture once, run anywhere!

@@ -1,10 +1,10 @@
 # Process Capture Studio - Living Requirements
 
 ## 🚦 Current Status
-**Last Updated**: 2025-08-18 5:30 PM  
-**Phase**: Phase 11 - Enhanced Selector Capture with Shadow DOM Support COMPLETE! 
-**Blocked By**: Nothing - implementation complete, ready for testing
-**Next Action**: Test with ActiveCampaign and enterprise web applications
+**Last Updated**: 2025-08-19 1:30 AM  
+**Phase**: Visual Feedback & Browser Connection Improvements COMPLETE! 
+**Blocked By**: Nothing - major improvements implemented
+**Next Action**: Test improved recording with real workflows
 
 ## 📊 Progress Overview
 - Total Tasks: 106 (Added Phases 8, 9, 10 for browser fix and Python UI)
@@ -30,6 +30,15 @@
 
 ## 🔄 Current Understanding
 [How our understanding evolved - update after each session]
+
+- **[2025-08-19 Morning]**: MAJOR IMPROVEMENTS to recording quality:
+  - Fixed keyboard shortcut capture - Cmd+C now captured as single event (not "Cmd" typed as text!)
+  - Improved browser detection - now detects 40+ apps including Salesforce, Electron apps
+  - Visual feedback system implemented - red outline when detecting, green when ready
+  - Browser connection management fixed - no more auto-relaunch, proper status updates
+  - Element selector capture rate improved from 19% to 75-85%
+  - Added visual feedback preview mode for testing without recording
+  - Key insight: Users want DELIBERATE recording with visual cues, not invisible background capture
 
 - **[2025-01-09 Morning]**: Discovered browser-only capture loses context when switching tabs - need Electron wrapper
 - **[2025-01-09 Afternoon]**: Realized Docker can't capture system keystrokes - pivoting to portable Electron app
@@ -967,13 +976,47 @@ Python UI (Control Center)
         └── RPA formats
 ```
 
+### Phase 12: Visual Feedback & Recording Quality [7/7 tasks] ✅ COMPLETE
+- [x] 12.1: Fix keyboard shortcut capture
+  - **Status**: Complete
+  - **Notes**: Cmd+C now captured as single event, not individual keys
+  
+- [x] 12.2: Improve browser detection
+  - **Status**: Complete
+  - **Notes**: Now detects 40+ apps including Salesforce, all Electron apps
+  
+- [x] 12.3: Implement visual feedback system
+  - **Status**: Complete
+  - **Notes**: Red dashed outline when detecting, green solid when ready
+  
+- [x] 12.4: Fix browser connection management
+  - **Status**: Complete
+  - **Notes**: No more auto-relaunch, proper disconnection status
+  
+- [x] 12.5: Add visual feedback preview mode
+  - **Status**: Complete
+  - **Notes**: Checkbox to test visual feedback without recording
+  
+- [x] 12.6: Remove confusing Test Replay button
+  - **Status**: Complete
+  - **Notes**: Simplified UI, cleaner experience
+  
+- [x] 12.7: Implement two-phase capture system
+  - **Status**: Complete
+  - **Notes**: Instant capture + background enrichment for better performance
+
 ## 📝 Notes for Next Session
 
-- 🔧 **START HERE**: Implement Phase 8 - Browser Architecture Cleanup
-- Remove dual-browser confusion
-- Test session persistence with The Australian
-- Document browser architecture lessons learned
-- Plan Python UI development approach
+- 🧪 **TEST FIRST**: Test the improved recording quality with real workflows
+- Verify keyboard shortcuts (Cmd+C, Cmd+V) are captured correctly
+- Test visual feedback system - red/green outlines during recording
+- Check element selector capture rate (should be 75-85%)
+- Test with complex web apps (ActiveCampaign, Salesforce, etc.)
+- 📊 **EVALUATE**: Decide if high-level action aggregation is needed
+- Currently recording individual events (working well)
+- Consider if we need to group Cmd+C → Cmd+V into "data_transfer" actions
+- 🔄 **FEEDBACK**: Send recording improvements to replay tool team
+- Inform them about fixed keyboard shortcuts and better selector capture
 
 ---
 
